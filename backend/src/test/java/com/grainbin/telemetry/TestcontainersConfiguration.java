@@ -21,9 +21,12 @@ import org.testcontainers.utility.DockerImageName;
  *
  * <p>Spring caches application contexts between test classes, so the container
  * is started once and reused across the suite rather than per test class.
+ *
+ * <p>Public because integration tests live in the feature packages they
+ * exercise, not alongside this class.
  */
 @TestConfiguration(proxyBeanMethods = false)
-class TestcontainersConfiguration {
+public class TestcontainersConfiguration {
 
 	/**
 	 * Pinned to the same major version as production (RDS PostgreSQL 16).
@@ -36,7 +39,7 @@ class TestcontainersConfiguration {
 
 	@Bean
 	@ServiceConnection
-	PostgreSQLContainer postgresContainer() {
+	public PostgreSQLContainer postgresContainer() {
 		return new PostgreSQLContainer(POSTGRES_IMAGE);
 	}
 
