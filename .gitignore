@@ -13,9 +13,11 @@ simulator/.devices.json
 target/
 hs_err_pid*
 replay_pid*
-# Note: *.jar is deliberately NOT ignored -- the Maven Wrapper may ship
-# .mvn/wrapper/maven-wrapper.jar, which must be committed for ./mvnw to work
-# on a clean checkout. All real build output lives in target/.
+# Note: *.jar is deliberately NOT ignored. All real build output lives in
+# target/, which is covered above. This wrapper is configured as
+# distributionType=only-script, so it downloads Maven itself and no
+# maven-wrapper.jar is committed -- but blanket-ignoring *.jar is the kind of
+# rule that silently breaks ./mvnw on a clean checkout if that ever changes.
 
 # ---------------------------------------------------------------------------
 # Node / Vite (frontend, Milestone 2)
