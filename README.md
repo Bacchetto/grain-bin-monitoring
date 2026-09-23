@@ -161,7 +161,11 @@ The default thresholds are placeholders for demonstration, not agronomic guidanc
 Lifecycle and rules:
 
 - Lifecycle: `OPEN` → `ACKNOWLEDGED` → `RESOLVED`.
-- At most one non-resolved alert per `(bin, type, cable, depth)`. Repeat detections update `last_detected_at` rather than creating new rows.
+- At most one non-resolved alert per condition. Repeat detections update `last_detected_at` rather than creating new rows.
+  The key depends on what the alert is about: sensor alerts (`HIGH_TEMPERATURE`, `HIGH_MOISTURE`, `RATE_OF_RISE`) use
+  `(bin, type, cable, depth)`; `DEVICE_OFFLINE` has no sensor position and uses `(bin, type, device)`, so two offline
+  controllers on one bin raise two alerts and each resolves on its own recovery. See
+  [ADR 0002](docs/decisions/0002-device-scoped-offline-alert-dedupe.md).
 - Auto-resolve when the condition has been clear for 3 consecutive evaluations. This prevents flapping.
 - `DEVICE_OFFLINE` must be based on the last **successfully stored** reading, not on connection attempts. A device that connects but sends only rejected or duplicate data is still offline from a data standpoint.
 - Every alert state change is logged as structured JSON and counted with a Micrometer counter (`alerts_transitions_total{type,to_state}`).

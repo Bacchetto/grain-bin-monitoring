@@ -225,23 +225,81 @@ class SchemaIntegrationTest {
 				.isEqualTo(2);
 	}
 
+	private int openOfflineAlert(long binId, long deviceId) {
+		return jdbc.sql("INSERT INTO alerts (bin_id, device_id, type) VALUES (?, ?, 'DEVICE_OFFLINE')")
+				.param(binId).param(deviceId).update();
+	}
+
 	@Test
-	@DisplayName("DEVICE_OFFLINE de-duplicates even though its sensor position is NULL")
-	void deviceOfflineDedupesAcrossNulls() {
+	@DisplayName("the same device cannot raise two open DEVICE_OFFLINE alerts")
+	void deviceOfflineDedupesPerDevice() {
 		long binId = insertBin();
 		long deviceId = insertDevice(binId);
 
-		jdbc.sql("INSERT INTO alerts (bin_id, device_id, type) VALUES (?, ?, 'DEVICE_OFFLINE')")
-				.param(binId).param(deviceId).update();
+		openOfflineAlert(binId, deviceId);
 
-		// Without NULLS NOT DISTINCT on the partial unique index, PostgreSQL
-		// would treat every NULL sensor position as distinct and allow this --
-		// silently disabling de-duplication for the one alert type whose
-		// position is always NULL.
-		assertThatThrownBy(() -> jdbc
-				.sql("INSERT INTO alerts (bin_id, device_id, type) VALUES (?, ?, 'DEVICE_OFFLINE')")
-				.param(binId).param(deviceId).update())
+		assertThatThrownBy(() -> openOfflineAlert(binId, deviceId))
 				.isInstanceOf(DuplicateKeyException.class);
+	}
+
+	@Test
+	@DisplayName("two devices on one bin each get their own DEVICE_OFFLINE alert")
+	void twoDevicesOnOneBinAlertIndependently() {
+		long binId = insertBin();
+		long deviceA = insertDevice(binId);
+		long deviceB = insertDevice(binId);
+
+		// Regression test for the bug V4 fixes. Under V3 the de-duplication key
+		// was (bin, type, cable, depth); DEVICE_OFFLINE has no sensor position,
+		// so it collapsed to one alert per bin and this second insert failed --
+		// meaning a second controller could go offline and never be reported.
+		assertThat(openOfflineAlert(binId, deviceA)).isEqualTo(1);
+		assertThat(openOfflineAlert(binId, deviceB)).isEqualTo(1);
+
+		assertThat(jdbc.sql("""
+				SELECT count(*) FROM alerts
+				WHERE bin_id = ? AND type = 'DEVICE_OFFLINE' AND status <> 'RESOLVED'
+				""").param(binId).query(Integer.class).single())
+				.isEqualTo(2);
+	}
+
+	@Test
+	@DisplayName("resolving one device's outage does not clear the other device's")
+	void resolvingOneDeviceLeavesTheOtherAlerting() {
+		long binId = insertBin();
+		long deviceA = insertDevice(binId);
+		long deviceB = insertDevice(binId);
+		openOfflineAlert(binId, deviceA);
+		openOfflineAlert(binId, deviceB);
+
+		jdbc.sql("""
+				UPDATE alerts SET status = 'RESOLVED', resolved_at = now()
+				WHERE bin_id = ? AND device_id = ?
+				""").param(binId).param(deviceA).update();
+
+		assertThat(jdbc.sql("""
+				SELECT device_id FROM alerts
+				WHERE bin_id = ? AND type = 'DEVICE_OFFLINE' AND status <> 'RESOLVED'
+				""").param(binId).query(Long.class).single())
+				.as("device B is still offline and still alerting")
+				.isEqualTo(deviceB);
+	}
+
+	@Test
+	@DisplayName("a DEVICE_OFFLINE alert may not carry a sensor position")
+	void deviceOfflineHasNoSensorPosition() {
+		long binId = insertBin();
+		long deviceId = insertDevice(binId);
+
+		// Keeps the two partial unique indexes disjoint: without this, a
+		// DEVICE_OFFLINE row carrying cable/depth would be de-duplicated by the
+		// device index while looking like a sensor alert.
+		assertThatThrownBy(() -> jdbc.sql("""
+				INSERT INTO alerts (bin_id, device_id, type, cable_index, depth_index)
+				VALUES (?, ?, 'DEVICE_OFFLINE', 0, 0)
+				""").param(binId).param(deviceId).update())
+				.isInstanceOf(DataIntegrityViolationException.class)
+				.hasMessageContaining("alerts_device_offline_has_no_sensor_position");
 	}
 
 	@Test
