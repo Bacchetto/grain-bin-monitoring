@@ -25,6 +25,22 @@ Each ADR has four sections:
 
 Keep them short. A page is plenty.
 
+## Where ADRs get referenced from
+
+An ADR that nobody finds at the moment they need it has not been recorded, only
+filed. So each one is linked from the code whose author needs to know -- and
+that is usually *not* the code the decision is about.
+
+The no-foreign-key decision is a property of `readings`, but the person who
+needs warning is whoever later writes a delete endpoint in `bins`, so that is
+where the warning lives.
+
+**Link from `package-info.java`, not from a migration.** Flyway checksums
+applied migrations, and `validate-on-migrate` is on, so a comment inside a
+migration cannot be corrected once it has been committed -- including to point
+at an ADR that did not exist yet. Migration comments explain the SQL in front
+of them; package docs carry anything that might need updating later.
+
 ## Index
 
 | # | Decision | Applies to |
