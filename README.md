@@ -12,9 +12,9 @@ This project demonstrates production-style backend engineering end to end: API d
 
 | Area | Choice |
 |---|---|
-| Backend | Java 21 (LTS), latest stable Spring Boot, Maven (with wrapper) |
+| Backend | Java 21 (LTS), Spring Boot 4.1.x, Maven (with wrapper) |
 | Database | PostgreSQL 16+, Flyway migrations, native table partitioning |
-| Testing | JUnit 5, AssertJ, Testcontainers (real Postgres, no H2), MockMvc |
+| Testing | JUnit 6, AssertJ, Testcontainers (real Postgres, no H2), MockMvc |
 | Front end | React + TypeScript, Vite, Recharts |
 | Simulator | Python 3.11+, `requests`, `pytest` |
 | Containers | Hand-written multi-stage Dockerfile, Docker Compose for local dev |
@@ -23,6 +23,22 @@ This project demonstrates production-style backend engineering end to end: API d
 | IaC | Terraform, S3 remote state with native lockfile (`use_lockfile = true`) |
 | Observability | Spring Actuator, Micrometer (Prometheus format), Grafana locally, CloudWatch in AWS |
 | Load testing | k6 |
+
+> **Spring Boot 4 notes.** "Latest stable Spring Boot" resolved to 4.1.1, which
+> pulls in **JUnit 6** and **Jackson 3** through its dependency management. The
+> JUnit Jupiter API and its `org.junit.jupiter.api` package names are unchanged,
+> so tests are written exactly as they would be under JUnit 5. Jackson 3 is a
+> real move, and a partial one worth knowing exactly: `jackson-core` and
+> `jackson-databind` move to group id `tools.jackson.core` at 3.1.5, while
+> `jackson-annotations` stays at `com.fasterxml.jackson.core` 2.21. So mapper
+> and module imports change, but `@JsonProperty` and friends still come from
+> `com.fasterxml.jackson.annotation`. Spring's own `@JsonComponent` becomes
+> `@JacksonComponent`.
+>
+> Boot 4 also renamed starters. `spring-boot-starter-web` is now
+> `spring-boot-starter-webmvc`, Flyway needs an explicit
+> `spring-boot-starter-flyway`, and `spring-boot-starter-test` is split into
+> per-module `*-test` starters. Most tutorials still describe the Boot 3 names.
 
 ---
 
