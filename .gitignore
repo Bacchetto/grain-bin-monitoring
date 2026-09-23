@@ -1,0 +1,67 @@
+# ---------------------------------------------------------------------------
+# Secrets and local state -- never commit these.
+# ---------------------------------------------------------------------------
+.env
+.env.*
+!.env.example
+# Written by `sim.py --seed-bins`; contains plaintext device API keys.
+simulator/.devices.json
+
+# ---------------------------------------------------------------------------
+# Java / Maven
+# ---------------------------------------------------------------------------
+target/
+hs_err_pid*
+replay_pid*
+# Note: *.jar is deliberately NOT ignored -- the Maven Wrapper may ship
+# .mvn/wrapper/maven-wrapper.jar, which must be committed for ./mvnw to work
+# on a clean checkout. All real build output lives in target/.
+
+# ---------------------------------------------------------------------------
+# Node / Vite (frontend, Milestone 2)
+# ---------------------------------------------------------------------------
+node_modules/
+dist/
+dist-ssr/
+.vite/
+npm-debug.log*
+yarn-error.log*
+
+# ---------------------------------------------------------------------------
+# Python (simulator)
+# ---------------------------------------------------------------------------
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+*.egg-info/
+
+# ---------------------------------------------------------------------------
+# Terraform (Milestone 3)
+# ---------------------------------------------------------------------------
+.terraform/
+*.tfstate
+*.tfstate.*
+crash.log
+*.tfvars
+!*.tfvars.example
+# Note: .terraform.lock.hcl IS committed -- it pins provider versions so CI
+# and local runs resolve identically.
+
+# ---------------------------------------------------------------------------
+# Local observability data (Milestone 2)
+# ---------------------------------------------------------------------------
+ops/grafana/data/
+ops/prometheus/data/
+
+# ---------------------------------------------------------------------------
+# Editors and OS
+# ---------------------------------------------------------------------------
+.idea/
+*.iml
+.vscode/
+*.swp
+.DS_Store
+Thumbs.db
