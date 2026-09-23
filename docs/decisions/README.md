@@ -47,6 +47,8 @@ of them; package docs carry anything that might need updating later.
 |---|---|---|
 | [0001](0001-no-foreign-keys-on-readings.md) | No foreign keys on the `readings` table | `V2` |
 | [0002](0002-device-scoped-offline-alert-dedupe.md) | `DEVICE_OFFLINE` alerts de-duplicate per device, not per bin | `V4` |
+| [0003](0003-filter-based-auth.md) | Servlet filters for authentication, not Spring Security | `config` |
+| [0004](0004-sha-256-for-device-api-keys.md) | SHA-256 for device API keys, not bcrypt | `devices` |
 
 ## Decisions already made, pending write-up
 
@@ -59,8 +61,5 @@ are not lost. Each becomes a numbered ADR during Milestone 1.
 - **Spring Boot 4.1.x over 3.5.x.** The spec says "latest stable".
 - **Monthly range partitioning of `readings`.** Why one partition per month,
   and why there is no `samples` table.
-- **Filter-based auth rather than Spring Security**, and the admin bearer-token
-  tradeoff the README already flags as not production-grade.
-- **SHA-256 for device API key hashing, not bcrypt.**
 - **`bin_id` denormalised onto `readings`.**
 - **Rancher Desktop as the local container runtime** (over Docker Desktop).

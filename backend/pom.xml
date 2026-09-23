@@ -154,6 +154,34 @@
 				<groupId>org.springframework.boot</groupId>
 				<artifactId>spring-boot-maven-plugin</artifactId>
 			</plugin>
+
+			<!--
+				The admin token is mandatory and has no default, so tests need
+				one to start a context at all.
+
+				It is supplied as an ENVIRONMENT VARIABLE rather than a
+				src/test/resources/application.properties, on purpose. Spring
+				Boot resolves classpath:/application.properties to a single
+				resource, and a copy in the test tree shadows the real one
+				entirely. The tests would then run against none of the
+				application's actual configuration, and would happily pass
+				while the packaged application was misconfigured.
+
+				Injecting the variable instead means tests read the same
+				application.properties that ships, through the same
+				${ADMIN_TOKEN} indirection production uses.
+
+				This value is not a secret and protects nothing.
+			-->
+			<plugin>
+				<groupId>org.apache.maven.plugins</groupId>
+				<artifactId>maven-surefire-plugin</artifactId>
+				<configuration>
+					<environmentVariables>
+						<ADMIN_TOKEN>test-admin-token-do-not-use-anywhere-real</ADMIN_TOKEN>
+					</environmentVariables>
+				</configuration>
+			</plugin>
 		</plugins>
 	</build>
 
