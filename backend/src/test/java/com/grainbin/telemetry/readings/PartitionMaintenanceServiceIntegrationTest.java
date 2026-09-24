@@ -8,6 +8,8 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.jdbc.core.simple.JdbcClient;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.Instant;
 import java.time.YearMonth;
@@ -38,6 +40,9 @@ class PartitionMaintenanceServiceIntegrationTest {
 
 	@Autowired
 	private JdbcClient jdbc;
+
+	@Autowired
+	private PlatformTransactionManager transactionManager;
 
 	// -----------------------------------------------------------------------
 	// helpers
@@ -215,5 +220,49 @@ class PartitionMaintenanceServiceIntegrationTest {
 		assertThat(jdbc.sql("SELECT tableoid::regclass::text FROM readings WHERE device_id = ?")
 				.param(deviceId).query(String.class).single())
 				.isEqualTo("readings_2032_07");
+	}
+
+	// -----------------------------------------------------------------------
+	// the cache must never claim a partition the database does not have
+	// -----------------------------------------------------------------------
+
+	@Test
+	@DisplayName("a partition created in a transaction that rolls back is not cached")
+	void rolledBackCreationIsNotCached() {
+		YearMonth month = YearMonth.of(2034, 2);
+		Instant instant = Instant.parse("2034-02-10T00:00:00Z");
+
+		// PostgreSQL DDL is transactional, so the rollback removes the new
+		// partition. If the month had been cached at call time, this instance
+		// would go on believing the partition exists, and every later insert
+		// into February 2034 would fail with "no partition of relation found".
+		new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
+			partitions.ensureFor(instant);
+			status.setRollbackOnly();
+		});
+
+		assertThat(partitionExists("readings_2034_02")).as("DDL rolled back").isFalse();
+		assertThat(partitions.knownMonths()).as("and the cache did not claim it").doesNotContain(month);
+
+		// Because the cache stayed honest, the next call simply creates it.
+		partitions.ensureFor(instant);
+		assertThat(partitionExists("readings_2034_02")).isTrue();
+		assertThat(partitions.knownMonths()).contains(month);
+	}
+
+	@Test
+	@DisplayName("a partition created in a transaction that commits is cached after the commit")
+	void committedCreationIsCached() {
+		YearMonth month = YearMonth.of(2034, 5);
+
+		new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
+			partitions.ensureFor(Instant.parse("2034-05-10T00:00:00Z"));
+
+			// Not yet: the DDL could still be rolled back.
+			assertThat(partitions.knownMonths()).doesNotContain(month);
+		});
+
+		assertThat(partitions.knownMonths()).contains(month);
+		assertThat(partitionExists("readings_2034_05")).isTrue();
 	}
 }

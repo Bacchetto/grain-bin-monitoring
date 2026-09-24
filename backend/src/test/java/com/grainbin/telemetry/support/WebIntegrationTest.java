@@ -36,7 +36,7 @@ import tools.jackson.databind.ObjectMapper;
  * its own bins with unique names instead.
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
-@Import({ TestcontainersConfiguration.class, IngestStubEndpoints.class })
+@Import(TestcontainersConfiguration.class)
 public abstract class WebIntegrationTest {
 
 	@LocalServerPort
@@ -84,6 +84,16 @@ public abstract class WebIntegrationTest {
 	protected EntityExchangeResult<String> postAsAdminWithoutBody(String path) {
 		return this.client.post().uri(path)
 				.header(HttpHeaders.AUTHORIZATION, bearer())
+				.exchange()
+				.returnResult(String.class);
+	}
+
+	/** POST a batch to the ingest endpoint as a device. */
+	protected EntityExchangeResult<String> postReadings(String deviceKey, String jsonBody) {
+		return this.client.post().uri("/api/v1/readings")
+				.header("X-Device-Key", deviceKey)
+				.contentType(MediaType.APPLICATION_JSON)
+				.body(jsonBody)
 				.exchange()
 				.returnResult(String.class);
 	}

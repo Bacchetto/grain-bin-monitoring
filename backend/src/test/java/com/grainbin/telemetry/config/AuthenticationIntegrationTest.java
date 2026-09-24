@@ -17,13 +17,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 /**
  * Verifies the authentication filters against a running server.
  *
- * <p>The admin cases run against the real {@code GET /api/v1/bins}. Until
- * Phase 6 that path was a stub in the test tree; when the real controller
- * arrived the two mappings collided and failed the context outright, which is
- * the desired way for a stub to expire.
- *
- * <p>The ingest path is still stubbed -- see {@code IngestStubEndpoints} --
- * because the real ingest controller is Phase 7.
+ * <p>Both halves run against the real endpoints. Each was stubbed in the test
+ * tree until its controller existed; when the real one arrived the two
+ * mappings collided and failed the context outright, which is the desired way
+ * for a stub to expire.
  */
 class AuthenticationIntegrationTest extends WebIntegrationTest {
 
@@ -97,17 +94,21 @@ class AuthenticationIntegrationTest extends WebIntegrationTest {
 	class IngestEndpoint {
 
 		@Test
-		@DisplayName("a valid key resolves the device and leaves it on the request")
+		@DisplayName("a valid key is accepted and readings are attributed to its device and bin")
 		void validKeyIsAccepted() {
-			EntityExchangeResult<String> result = post("/api/v1/readings", "X-Device-Key", deviceKey);
+			EntityExchangeResult<String> result = postReadings(deviceKey, """
+					{"samples": [{"seq": 1, "recordedAt": "%s",
+					  "sensors": [{"cable": 0, "depth": 0, "temperatureC": 11.4}]}]}
+					""".formatted(java.time.Instant.now().truncatedTo(java.time.temporal.ChronoUnit.SECONDS)));
 
-			assertThat(result.getStatus()).isEqualTo(HttpStatus.OK);
+			assertThat(result.getStatus()).isEqualTo(HttpStatus.ACCEPTED);
 
-			// The controller never saw the key -- it read the device the filter
-			// resolved. This is what stops a device writing to another bin.
-			JsonNode body = bodyOf(result);
-			assertThat(body.get("deviceId").asLong()).isEqualTo(deviceId);
-			assertThat(body.get("binId").asLong()).isEqualTo(binId);
+			// The body named no device and no bin. Both were taken from the
+			// key, which is what stops a device writing to another bin.
+			var stored = jdbc.sql("SELECT device_id, bin_id FROM readings WHERE device_id = ?")
+					.param(deviceId).query().singleRow();
+			assertThat(stored.get("device_id")).isEqualTo(deviceId);
+			assertThat(stored.get("bin_id")).isEqualTo(binId);
 		}
 
 		@Test

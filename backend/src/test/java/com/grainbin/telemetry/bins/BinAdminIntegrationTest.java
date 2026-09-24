@@ -365,14 +365,17 @@ class BinAdminIntegrationTest extends WebIntegrationTest {
 			assertThat(body.get("binId").asLong()).isEqualTo(binId);
 			assertThat(body.get("expectedIntervalSeconds").asInt()).isEqualTo(600);
 
-			// The key is only useful if it actually authenticates. This proves
-			// the digest stored matches the digest the filter computes.
-			EntityExchangeResult<String> ingest = client.post().uri("/api/v1/readings")
-					.header("X-Device-Key", apiKey)
-					.exchange()
-					.returnResult(String.class);
-			assertThat(ingest.getStatus()).isEqualTo(HttpStatus.OK);
-			assertThat(bodyOf(ingest).get("binId").asLong()).isEqualTo(binId);
+			// The key is only useful if it actually authenticates. Posting a real
+			// batch with it proves the digest stored at registration is the
+			// digest the filter computes, end to end.
+			EntityExchangeResult<String> ingest = postReadings(apiKey, """
+					{"samples": [{"seq": 1, "recordedAt": "%s",
+					  "sensors": [{"cable": 0, "depth": 0, "temperatureC": 12.0}]}]}
+					""".formatted(Instant.now().truncatedTo(java.time.temporal.ChronoUnit.SECONDS)));
+			assertThat(ingest.getStatus()).isEqualTo(HttpStatus.ACCEPTED);
+			assertThat(jdbc.sql("SELECT bin_id FROM readings WHERE device_id = ?")
+					.param(body.get("id").asLong()).query(Long.class).single())
+					.isEqualTo(binId);
 		}
 
 		@Test

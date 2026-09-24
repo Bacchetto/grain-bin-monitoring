@@ -8,6 +8,8 @@ import org.springframework.context.event.EventListener;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.time.Clock;
 import java.time.Instant;
@@ -181,9 +183,46 @@ public class PartitionMaintenanceService {
 				.param(month.atDay(1))
 				.query(String.class)
 				.single();
-		knownMonths.add(month);
+		rememberOnceCommitted(month);
 		log.info("Ensured readings partition {} for {}", partition, month);
 		return true;
+	}
+
+	/**
+	 * Records a month as known -- but only once the DDL that created its
+	 * partition has actually committed.
+	 *
+	 * <p>PostgreSQL DDL is transactional. If this is called inside a caller's
+	 * transaction and that transaction rolls back, the partition is rolled back
+	 * with it. Caching the month immediately would leave this instance believing
+	 * a partition exists that does not, and every later insert into that month
+	 * would fail with "no partition of relation found" -- the exact failure this
+	 * class exists to prevent, caused by the cache that was only meant to make it
+	 * faster.
+	 *
+	 * <p>Deferring to {@code afterCommit} means a rollback costs, at worst, one
+	 * more call to an idempotent function later. The cache can therefore be
+	 * pessimistic but never optimistic, which is the only safe direction for it
+	 * to be wrong in.
+	 *
+	 * <p>The ingest path avoids this situation entirely by ensuring partitions
+	 * before it opens its transaction. This is the second line of defence, for
+	 * any future caller that does not.
+	 */
+	private void rememberOnceCommitted(YearMonth month) {
+		if (TransactionSynchronizationManager.isSynchronizationActive()) {
+			TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+				@Override
+				public void afterCommit() {
+					knownMonths.add(month);
+				}
+			});
+		}
+		else {
+			// No surrounding transaction: the call above ran in autocommit and
+			// has already committed.
+			knownMonths.add(month);
+		}
 	}
 
 	/**

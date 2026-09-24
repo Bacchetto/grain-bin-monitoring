@@ -122,9 +122,11 @@ Rules:
 
 - The device is identified from its key. It never sends its own ID.
 - Maximum 500 samples per batch. Return 413 if exceeded.
-- Reject samples with `recordedAt` more than 5 minutes in the future, and count them as `rejected`.
+- Reject samples with `recordedAt` more than 5 minutes in the future, and count them as `rejected`. The rest of the batch is still processed.
+- All three counts are in **readings** (one per sensor value), not samples, so `accepted + duplicates + rejected` always equals the number of sensor values sent.
+- A structurally invalid reading (a missing field, or a value its column cannot store) fails the whole batch with `400`, and the error names it by path, e.g. `samples[3].sensors[0].temperatureC`.
 - Samples may arrive out of order. Order is determined by `recordedAt`, not arrival.
-- Update `devices.last_seen_at` only after a successful insert.
+- Update `devices.last_seen_at` only after a successful insert, to the **server's** receive time rather than the device's `recordedAt`, so device clock skew cannot cause or hide a `DEVICE_OFFLINE` alert. See [ADR 0005](docs/decisions/0005-last-seen-uses-server-clock.md).
 - Evaluate threshold alerts synchronously after insert (see below).
 
 ### Admin and dashboard
@@ -320,9 +322,9 @@ Work in order. Each milestone ends with every check above passing and a short su
 - [ ] Maven project with Spring Boot, Actuator, Web, Validation, JDBC or JPA (pick one and justify it in an ADR), Flyway, and Testcontainers
 - [x] Flyway schema for bins, devices, partitioned readings, and alerts, with partition creation handled
 - [x] Admin endpoints for bins and device registration (API key hashing)
-- [ ] Ingest endpoint with idempotency, batch limits, and future-timestamp rejection
+- [x] Ingest endpoint with idempotency, batch limits, and future-timestamp rejection
 - [ ] `latest` and bucketed `readings` query endpoints
-- [ ] Testcontainers integration tests covering duplicates, out-of-order samples, and a missing partition
+- [x] Testcontainers integration tests covering duplicates, out-of-order samples, and a missing partition
 - [ ] `docker-compose.yml` for Postgres
 - [ ] Simulator with `--seed-bins`, `normal`, and `flaky` scenarios
 

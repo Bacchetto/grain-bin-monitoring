@@ -49,6 +49,7 @@ of them; package docs carry anything that might need updating later.
 | [0002](0002-device-scoped-offline-alert-dedupe.md) | `DEVICE_OFFLINE` alerts de-duplicate per device, not per bin | `V4` |
 | [0003](0003-filter-based-auth.md) | Servlet filters for authentication, not Spring Security | `config` |
 | [0004](0004-sha-256-for-device-api-keys.md) | SHA-256 for device API keys, not bcrypt | `devices` |
+| [0005](0005-last-seen-uses-server-clock.md) | `last_seen_at` records the server's clock, not the device's | `ingest` |
 
 ## Decisions already made, pending write-up
 

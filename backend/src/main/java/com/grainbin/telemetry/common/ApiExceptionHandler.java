@@ -74,6 +74,28 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
 	}
 
 	/**
+	 * The request is too large to accept.
+	 *
+	 * <p>Carries the limit as an extension member so a client can split its
+	 * batch correctly without parsing the human-readable detail.
+	 */
+	@ExceptionHandler(PayloadTooLargeException.class)
+	ProblemDetail handleTooLarge(PayloadTooLargeException ex) {
+		ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.CONTENT_TOO_LARGE, ex.getMessage());
+		problem.setTitle("Content Too Large");
+		problem.setProperty("limit", ex.limit());
+		return problem;
+	}
+
+	/** Bean Validation run by hand failed; same shape as the {@code @Valid} case. */
+	@ExceptionHandler(RequestValidationException.class)
+	ProblemDetail handleManualValidation(RequestValidationException ex) {
+		return validationProblem(ex.errors().stream()
+				.map(error -> fieldError(error.field(), error.message()))
+				.toList());
+	}
+
+	/**
 	 * Bean Validation rejected the request body.
 	 *
 	 * <p>The default response says only that validation failed. This adds an
@@ -89,24 +111,35 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
 			HttpHeaders headers, HttpStatusCode status, WebRequest request) {
 
 		List<Map<String, String>> errors = ex.getBindingResult().getAllErrors().stream()
-				.map(error -> {
-					Map<String, String> entry = new LinkedHashMap<>();
-					// Object-level constraints (such as "at least one
-					// threshold must be provided") have no field, so they are
-					// reported against the body as a whole.
-					entry.put("field", (error instanceof org.springframework.validation.FieldError fieldError)
-							? fieldError.getField() : "");
-					entry.put("message", error.getDefaultMessage() == null ? "is invalid" : error.getDefaultMessage());
-					return entry;
-				})
-				.sorted(Comparator.comparing(entry -> entry.get("field")))
+				// Object-level constraints (such as "at least one threshold must
+				// be provided") have no field, so they are reported against the
+				// body as a whole.
+				.map(error -> fieldError(
+						(error instanceof org.springframework.validation.FieldError fieldError) ? fieldError.getField() : "",
+						(error.getDefaultMessage() == null) ? "is invalid" : error.getDefaultMessage()))
 				.toList();
 
+		return ResponseEntity.of(validationProblem(errors)).build();
+	}
+
+	// -----------------------------------------------------------------------
+	// shared shape for every validation failure
+	// -----------------------------------------------------------------------
+
+	private static Map<String, String> fieldError(String field, String message) {
+		Map<String, String> entry = new LinkedHashMap<>();
+		entry.put("field", field);
+		entry.put("message", message);
+		return entry;
+	}
+
+	private static ProblemDetail validationProblem(List<Map<String, String>> errors) {
 		ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST,
 				"The request body failed validation.");
 		problem.setTitle("Bad Request");
-		problem.setProperty("errors", errors);
-
-		return ResponseEntity.of(problem).build();
+		problem.setProperty("errors", errors.stream()
+				.sorted(Comparator.comparing(entry -> entry.get("field")))
+				.toList());
+		return problem;
 	}
 }
