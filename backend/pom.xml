@@ -153,6 +153,21 @@
 			<plugin>
 				<groupId>org.springframework.boot</groupId>
 				<artifactId>spring-boot-maven-plugin</artifactId>
+				<configuration>
+					<!--
+						Activates the `local` profile for `./mvnw spring-boot:run`
+						only, which makes the API read the repository's .env the
+						same way Docker Compose does. See application-local.properties.
+
+						This setting belongs to the run goal. It does not reach the
+						tests, which must never depend on a developer's .env, nor
+						the packaged jar, which is configured from real environment
+						variables in production.
+					-->
+					<profiles>
+						<profile>local</profile>
+					</profiles>
+				</configuration>
 			</plugin>
 
 			<!--

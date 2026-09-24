@@ -1,0 +1,3 @@
+# Runtime dependency of the simulator. Pinned to the exact version it was
+# built and tested with, so a fresh install behaves identically.
+requests==2.34.2

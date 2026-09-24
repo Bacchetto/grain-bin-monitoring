@@ -1,0 +1,44 @@
+# Local development infrastructure.
+#
+#   docker compose up -d db        start PostgreSQL in the background
+#   docker compose ps              db should show "healthy"
+#   docker compose down            stop it; data survives in the volume
+#   docker compose down -v         stop it and delete all data
+#
+# Prometheus and Grafana join this file in Milestone 2, and the API container
+# in Milestone 3 once the Dockerfile exists. Until then the API runs on the host:
+#   cd backend && ./mvnw spring-boot:run
+#
+# Values come from .env in this directory, which Compose reads automatically,
+# falling back to the defaults below. Those defaults match the ones in
+# backend/src/main/resources/application.properties, so the API connects with no
+# .env at all -- and when there is one, both sides read the same file.
+
+name: grain-bin-monitoring
+
+services:
+  db:
+    # Pinned to the same major version as production (RDS PostgreSQL 16) and as
+    # the Testcontainers image, so local, test and cloud all run one version.
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: grain
+      POSTGRES_USER: ${DB_USER:-grain}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-grain}
+    ports:
+      # Published on localhost only. Binding to all interfaces would expose a
+      # database with a development password to the whole network.
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      # $$ passes a literal $ through to the container, so these are the
+      # container's own variables rather than ones Compose substitutes.
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  # Named, so data outlives the container: `down` keeps it, `down -v` removes it.
+  pgdata:

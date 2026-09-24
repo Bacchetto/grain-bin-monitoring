@@ -193,6 +193,12 @@ python simulator/sim.py --url http://localhost:8080 --scenario normal --bins 5 -
 
 Use `--time-scale` to compress simulated time so that multi-day scenarios run in minutes. The simulator also has a `--seed-bins` mode that creates bins and devices through the admin API and writes the device keys to a local, git-ignored file.
 
+**Implemented so far:** `--seed-bins`, `normal` and `flaky`. `hotspot`, `wet`, `offline` and `--time-scale` arrive in Milestone 2.
+
+- `--seed-bins N` is safe to repeat: bins it already holds keys for are left alone. Keys are stored per `--url`, so seeding a deployed stack does not overwrite the local keys. Devices are registered as reporting every 30 seconds at least, the backend's minimum; streaming more often is fine.
+- `--cycles N` stops after N samples per device; without it the simulator runs until Ctrl-C. `--seed` makes a run repeatable.
+- `seq` is derived from each sample's timestamp in whole seconds, so it increases across restarts with nothing stored on disk, and a resent sample carries its original `seq` -- which is how the backend recognises it as a duplicate.
+
 ---
 
 ## Front end
@@ -237,24 +243,46 @@ Organize backend packages by feature (`ingest`, `alerts`, `bins`), not by layer.
 
 ## Local development
 
+### One-time setup
+
+- **A Docker-compatible container runtime.** This project is developed with
+  [Rancher Desktop](https://rancherdesktop.io/); Docker Desktop also works.
+  With Rancher Desktop, set *Preferences → Container Engine* to **dockerd
+  (moby)** -- containerd has no Docker-compatible API, so Testcontainers cannot
+  use it. On Windows, also set the environment variable
+  `DOCKER_HOST=npipe:////./pipe/docker_engine` so Testcontainers can find it.
+- **Configuration:** `cp .env.example .env`, then set `ADMIN_TOKEN` (the file
+  shows how to generate one). This one file configures both Docker Compose and
+  the API.
+- **Simulator:** `python -m venv simulator/.venv`, activate it, then
+  `pip install -r simulator/requirements-dev.txt`.
+
+### Running it
+
 ```bash
-docker compose up -d db prometheus grafana   # infrastructure only
-cd backend && ./mvnw spring-boot:run         # API on :8080
-cd frontend && npm install && npm run dev    # UI on :5173
-python simulator/sim.py --seed-bins 3
-python simulator/sim.py --scenario hotspot --time-scale 720
+docker compose up -d db                               # PostgreSQL on localhost:5432
+cd backend && ./mvnw spring-boot:run                  # API on :8080, configured from ../.env
+python simulator/sim.py --seed-bins 3                 # bins + devices; keys saved to simulator/.devices.json
+python simulator/sim.py --scenario normal --interval 10
+python simulator/sim.py --scenario flaky --cycles 20  # duplicates, reordering, skipped intervals
 ```
 
-Or `docker compose up` to run everything, including the API container.
+Still to come: Prometheus and Grafana in Compose, the front end
+(`cd frontend && npm install && npm run dev`, UI on :5173), and the `hotspot`,
+`wet` and `offline` scenarios with `--time-scale` arrive in Milestone 2.
+`docker compose up` running everything, including the API container, arrives in
+Milestone 3 with the Dockerfile.
 
-Configuration comes from environment variables (see `.env.example`): `DB_URL`, `DB_USER`, `DB_PASSWORD`, `ADMIN_TOKEN`, `CORS_ALLOWED_ORIGINS`. Never commit `.env`.
+Configuration comes from environment variables (see `.env.example`): `DB_URL`, `DB_USER`, `DB_PASSWORD`, `ADMIN_TOKEN`, `CORS_ALLOWED_ORIGINS`, and optionally `APP_INGEST_MAX_SAMPLE_AGE`. Never commit `.env`.
+
+Spring Boot does not read `.env` files by itself. `./mvnw spring-boot:run` switches on a `local` profile that imports the root `.env`, so the API and Compose always agree -- change the database password there and both sides see it. A variable exported in the shell still wins. The tests never activate that profile, so a developer's `.env` cannot change what they see.
 
 ### Checks that must pass before any milestone is considered done
 
 ```bash
 cd backend && ./mvnw verify                         # unit + Testcontainers integration tests
 cd frontend && npm run lint && npm run build && npm test
-cd simulator && pytest
+cd simulator && pytest                             # with simulator/.venv activated
 docker build -t grain-telemetry-api backend/
 terraform -chdir=infra/terraform fmt -check && terraform -chdir=infra/terraform validate
 ```
@@ -327,8 +355,8 @@ Work in order. Each milestone ends with every check above passing and a short su
 - [x] Ingest endpoint with idempotency, batch limits, and future-timestamp rejection
 - [x] `latest` and bucketed `readings` query endpoints
 - [x] Testcontainers integration tests covering duplicates, out-of-order samples, and a missing partition
-- [ ] `docker-compose.yml` for Postgres
-- [ ] Simulator with `--seed-bins`, `normal`, and `flaky` scenarios
+- [x] `docker-compose.yml` for Postgres
+- [x] Simulator with `--seed-bins`, `normal`, and `flaky` scenarios
 
 ### Milestone 2: Alerts and dashboard (week 2)
 - [ ] Alert engine with all four types, dedupe, auto-resolve, and metrics

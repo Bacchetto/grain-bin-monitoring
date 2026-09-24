@@ -1,0 +1,9 @@
+# Test configuration only. The simulator is a script, not a distributed
+# package, so there is no build system here.
+
+[tool.pytest.ini_options]
+# The modules live beside sim.py rather than in a package, so the tests need
+# this directory on the import path -- the same one Python adds when sim.py is
+# run as a script.
+pythonpath = ["."]
+testpaths = ["tests"]
