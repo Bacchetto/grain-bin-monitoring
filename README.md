@@ -141,8 +141,8 @@ Authenticated with `Authorization: Bearer <ADMIN_TOKEN>`, where the token comes 
 | GET | `/bins/{id}` | Bin detail and thresholds |
 | PATCH | `/bins/{id}/thresholds` | Update alert thresholds |
 | POST | `/bins/{id}/devices` | Register a device. Returns the plaintext API key **once**. |
-| GET | `/bins/{id}/latest` | Latest reading per sensor |
-| GET | `/bins/{id}/readings?from=&to=&bucket=hour\|day` | Time-bucketed averages, min, and max per sensor |
+| GET | `/bins/{id}/latest` | Latest reading per sensor, from the last 7 days; a sensor silent for longer is omitted rather than shown stale |
+| GET | `/bins/{id}/readings?from=&to=&bucket=hour\|day` | Time-bucketed averages, min, and max per sensor over `[from, to)`. Buckets align to UTC; at most 1,000 per sensor per request |
 | GET | `/alerts?status=open\|acknowledged\|resolved&binId=` | List alerts |
 | POST | `/alerts/{id}/acknowledge` | Acknowledge an alert |
 
@@ -325,7 +325,7 @@ Work in order. Each milestone ends with every check above passing and a short su
 - [x] Flyway schema for bins, devices, partitioned readings, and alerts, with partition creation handled
 - [x] Admin endpoints for bins and device registration (API key hashing)
 - [x] Ingest endpoint with idempotency, batch limits, and future-timestamp rejection
-- [ ] `latest` and bucketed `readings` query endpoints
+- [x] `latest` and bucketed `readings` query endpoints
 - [x] Testcontainers integration tests covering duplicates, out-of-order samples, and a missing partition
 - [ ] `docker-compose.yml` for Postgres
 - [ ] Simulator with `--seed-bins`, `normal`, and `flaky` scenarios

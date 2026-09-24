@@ -21,6 +21,8 @@ milestone; if it is rejected, it stays here marked as such, with the reason.
 | E10 | [Production-grade admin authentication](#e10) | Security | Proposed |
 | E11 | [Peppered (HMAC) device key digests](#e11) | Security | Proposed -- low priority |
 | E12 | [Track data freshness separately from liveness](#e12) | Devices, dashboard | Proposed |
+| E13 | [Faster `latest` for dense bins](#e13) | Query performance | Proposed -- only if bins get dense |
+| E14 | [Daily buckets in the site's local time](#e14) | Query API, dashboard | Proposed |
 
 ---
 
@@ -289,3 +291,57 @@ the device's clock -- freshness of the data itself. The two differ during a
 back-fill, and a dashboard may want to show both.
 
 **Trigger.** When the dashboard needs it. Nothing does yet.
+
+---
+
+<a id="e13"></a>
+## E13 - Faster `latest` for dense bins
+
+**Raised:** Milestone 1 Phase 8, [ADR 0007](decisions/0007-read-path-indexes-verified-with-explain-analyze.md)
+
+**Today.** `GET /bins/{id}/latest` is a plain `DISTINCT ON` that reads every row
+in the 7-day lookback window and keeps the newest per sensor. At 24 sensors
+reporting every 5 minutes that is about 48,000 rows and 29 ms. Its cost grows
+with sensors × readings per week, so a bin with 200 sensors reporting every
+minute would read roughly 2 million rows and take well over a second.
+
+**Two measured or considered options**, both set aside in ADR 0007 because the
+current query is fast enough:
+
+- **Loose index scan.** Recreate an index on
+  `(bin_id, cable_index, depth_index, recorded_at DESC)` and rewrite the query as
+  a recursive CTE that probes each sensor position once. Measured at about 1 ms
+  to execute plus 4 ms to plan, independent of reporting frequency. The cost is
+  the index itself: roughly 70% more insert time and 64 MB per monthly
+  partition at the measured scale, which is why `V5` dropped it.
+- **Latest-value table.** One row per sensor position, upserted on every ingest
+  batch. Reads become trivial, at the cost of an extra write per sensor per
+  batch on the hot path.
+
+**Trigger.** Bins dense enough that `latest` becomes noticeably slow on the
+dashboard.
+
+---
+
+<a id="e14"></a>
+## E14 - Daily buckets in the site's local time
+
+**Raised:** Milestone 1 Phase 8
+
+**Today.** `GET /bins/{id}/readings?bucket=day` aligns buckets to midnight
+**UTC**. That is deliberate and consistent -- the two-argument `date_trunc`
+would silently use the database session's time zone instead -- but a UTC day is
+not the farmer's day. In Alberta, midnight UTC is 6 pm or 5 pm the previous
+evening, so each daily point on the chart spans two local afternoons.
+
+**The idea.** Store an IANA time zone per site or bin (for example
+`America/Edmonton`) and truncate in that zone:
+`date_trunc('day', recorded_at, <site zone>)`. The three-argument form already
+used takes the zone as a parameter, so the query barely changes.
+
+**Things to get right.**
+
+- A day in a zone with daylight saving is 23 or 25 hours twice a year, so the
+  bucket-count cap and any client code that assumes 24-hour days need care.
+- The zone must come from data, never be interpolated from caller input.
+- Hourly buckets are unaffected, apart from zones offset by a non-whole hour.

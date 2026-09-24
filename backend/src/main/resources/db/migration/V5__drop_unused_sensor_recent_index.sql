@@ -1,0 +1,34 @@
+-- Drop readings_bin_sensor_recent_idx, which V2 created for the "latest reading
+-- per sensor" query and which that query turned out not to use.
+--
+-- V2's comment says there are two indexes for two query shapes. That is no
+-- longer true, and V2 cannot be corrected -- applied migrations are
+-- checksummed -- so the correction is recorded here and in ADR 0007.
+--
+-- WHAT WAS MEASURED (PostgreSQL 16, 6.2 million readings over four monthly
+-- partitions, 24 sensors per bin reporting every five minutes):
+--
+--   * The latest query -- SELECT DISTINCT ON (cable_index, depth_index) ...
+--     ORDER BY cable_index, depth_index, recorded_at DESC -- was planned as a
+--     bitmap scan of readings_bin_recorded_idx followed by a sort of about
+--     48,000 rows, in ~29 ms. It never touched this index. DISTINCT ON has to
+--     read every row in the window whichever index supplies them, and a bitmap
+--     scan plus an in-memory sort was cheaper than an ordered index scan.
+--
+--   * Maintaining this index cost ~70% more insert time: 345,600 rows took
+--     1,655 ms with it and 971 ms without it.
+--
+--   * It was 64 MB per monthly partition, against 146 MB of table data.
+--
+-- So it charged the ingest hot path on every row and bought nothing. The query
+-- CAN be written to use it -- a recursive loose index scan runs in about 1 ms --
+-- but that trades insert throughput on the path that must sustain load for
+-- speed on a dashboard call that is already fast enough, and makes the SQL much
+-- harder to follow. That alternative is recorded as an enhancement in case bins
+-- ever become dense enough for the simple query to be slow.
+--
+-- Dropping an index on a partitioned table drops it from every partition. It
+-- cannot be done CONCURRENTLY, and briefly takes an ACCESS EXCLUSIVE lock, but
+-- dropping is a catalogue change rather than a rewrite, so it is quick.
+
+DROP INDEX readings_bin_sensor_recent_idx;

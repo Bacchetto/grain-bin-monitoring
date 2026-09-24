@@ -135,7 +135,7 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
 
 	private static ProblemDetail validationProblem(List<Map<String, String>> errors) {
 		ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST,
-				"The request body failed validation.");
+				"The request failed validation.");
 		problem.setTitle("Bad Request");
 		problem.setProperty("errors", errors.stream()
 				.sorted(Comparator.comparing(entry -> entry.get("field")))

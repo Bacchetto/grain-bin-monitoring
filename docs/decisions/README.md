@@ -51,6 +51,7 @@ of them; package docs carry anything that might need updating later.
 | [0004](0004-sha-256-for-device-api-keys.md) | SHA-256 for device API keys, not bcrypt | `devices` |
 | [0005](0005-last-seen-uses-server-clock.md) | `last_seen_at` records the server's clock, not the device's | `ingest` |
 | [0006](0006-reject-samples-older-than-a-configurable-age.md) | Reject samples older than a configurable age (default 30 days) | `ingest` |
+| [0007](0007-read-path-indexes-verified-with-explain-analyze.md) | Read-path indexes, verified with `EXPLAIN ANALYZE`; unused sensor index dropped | `readings`, `V5` |
 
 ## Decisions already made, pending write-up
 
