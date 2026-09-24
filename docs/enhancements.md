@@ -11,6 +11,16 @@ milestone; if it is rejected, it stays here marked as such, with the reason.
 |---|---|---|---|
 | E1 | [Reject invalid readings individually instead of failing the batch](#e1) | Ingest | Proposed |
 | E2 | [Detect device clock faults from `recordedAt` behaviour](#e2) | Ingest, alerts | Proposed |
+| E3 | [Treat implausible sensor values as faults](#e3) | Ingest, alerts | Proposed -- consider with Milestone 2 |
+| E4 | [Single-statement bulk insert](#e4) | Ingest performance | Proposed -- only if load tests call for it |
+| E5 | [Cache device key lookups](#e5) | Ingest performance | Proposed -- only if load tests call for it |
+| E6 | [Scheduled check for orphaned readings](#e6) | Data integrity | Proposed |
+| E7 | [Revoke device keys](#e7) | Security | Proposed -- **gap** |
+| E8 | [Delete bins and devices](#e8) | Admin API, data lifecycle | Proposed |
+| E9 | [Retention by dropping old partitions](#e9) | Data lifecycle | Proposed |
+| E10 | [Production-grade admin authentication](#e10) | Security | Proposed |
+| E11 | [Peppered (HMAC) device key digests](#e11) | Security | Proposed -- low priority |
+| E12 | [Track data freshness separately from liveness](#e12) | Devices, dashboard | Proposed |
 
 ---
 
@@ -97,3 +107,185 @@ from existing rows with no schema change.
 replace it. The fixed floor stays as the hard bound on which partitions a
 device can cause to exist; detection adds the ability to notice a clock that
 is wrong but still inside the window.
+
+---
+
+<a id="e3"></a>
+## E3 - Treat implausible sensor values as faults
+
+**Raised:** Milestone 1 Phase 7
+
+**Today.** Temperature is bounded only by what its column can store (±999.9), so
+an unrepresentable value is a `400` but an implausible one is stored as a real
+reading. Common probes report fixed values on a fault: a disconnected DS18B20
+reads **−127 °C**, and one that has just powered on reads **85 °C**.
+
+**Why it matters.** The Milestone 2 alert engine will treat these as real. A
+sensor reading −127 and then 12 looks like a **139 °C rise** to `RATE_OF_RISE`,
+and 85 °C trips `HIGH_TEMPERATURE`. Both are false alarms caused by hardware,
+not grain.
+
+**The idea.** Recognise sensor faults -- known sentinel values, physically
+impossible jumps, values outside a plausible range -- and keep them out of
+alert evaluation, either by quarantining them or by storing them with a quality
+flag. This should be decided alongside the alert engine rather than after it.
+
+---
+
+<a id="e4"></a>
+## E4 - Single-statement bulk insert
+
+**Raised:** Milestone 1 Phase 7
+
+**Today.** Ingest sends one JDBC batch of single-row
+`INSERT ... ON CONFLICT DO NOTHING` statements, and the per-row update counts
+are how accepted readings are told apart from duplicates. The usual driver
+speed-up, `reWriteBatchedInserts=true`, cannot be used: it replaces those
+counts with `SUCCESS_NO_INFO`.
+
+**The idea.** One statement per batch --
+`INSERT ... SELECT FROM unnest(...) ON CONFLICT DO NOTHING RETURNING 1` --
+where the number of returned rows is the accepted count and the rest are
+duplicates. Fewer round trips, same exact counts.
+
+**Trigger.** Only if the Milestone 4 load tests show database time on the
+ingest path is the bottleneck.
+
+---
+
+<a id="e5"></a>
+## E5 - Cache device key lookups
+
+**Raised:** Milestone 1 Phase 5
+
+**Today.** Every ingest request resolves its API key with one indexed lookup,
+deliberately uncached (`DeviceAuthenticator`).
+
+**The idea.** A short-lived cache keyed by key digest.
+
+**The catch.** A cache means a revoked or deleted key keeps working until its
+entry expires. That delay has to be accepted as an explicit decision, and it
+interacts with E7: there is no revocation today, but once there is, a cache
+changes how quickly it takes effect.
+
+**Trigger.** Only if load tests show the lookup matters.
+
+---
+
+<a id="e6"></a>
+## E6 - Scheduled check for orphaned readings
+
+**Raised:** Milestone 1 Phase 3, [ADR 0001](decisions/0001-no-foreign-keys-on-readings.md)
+
+**Today.** `readings` has no foreign keys, for insert throughput. Readings whose
+device or bin no longer exists are possible and nothing detects them. The
+detecting query already exists, in `devices/package-info.java`.
+
+**The idea.** Run that anti-join on a schedule and report the count as a metric,
+so orphans become visible without paying for a foreign key on every insert.
+
+---
+
+<a id="e7"></a>
+## E7 - Revoke device keys
+
+**Raised:** Milestone 1, found while compiling this list. **This is a gap, not
+just an idea.**
+
+**Today.** There is no way to revoke a device's API key. If a key is lost or
+leaked, the only remedy is to register a replacement device -- **and the old key
+keeps working indefinitely.**
+
+**The idea.** A `revoked_at` column on `devices`, set by an admin endpoint and
+checked by `DeviceAuthenticator` during the lookup it already does. It needs no
+data deletion and fits into the existing query, which is why it is listed
+separately from deleting devices (E8).
+
+**Related.** Any caching (E5) would delay revocation by its TTL.
+
+---
+
+<a id="e8"></a>
+## E8 - Delete bins and devices
+
+**Raised:** Milestone 1 Phase 3, [ADR 0001](decisions/0001-no-foreign-keys-on-readings.md)
+
+**Today.** Neither can be deleted through the API.
+
+**The constraint any implementation must respect.** `devices` and `alerts`
+cascade from `bins`, but `readings` does not. A delete that relied on cascades
+would silently leave the readings behind. They have to be removed explicitly,
+in the same transaction -- which is expensive across a partitioned table, so a
+soft delete or a background reclaim may be the better shape.
+
+---
+
+<a id="e9"></a>
+## E9 - Retention by dropping old partitions
+
+**Raised:** Milestone 1 Phase 4
+
+**Today.** Partitions accumulate forever.
+
+**The idea.** Detach and drop monthly partitions older than a retention period.
+Dropping a partition is close to free, where deleting the same rows would be
+slow and leave the table bloated -- this is much of the reason `readings` is
+partitioned at all.
+
+**Two constraints.**
+
+- **It must invalidate the partition cache** in `PartitionMaintenanceService`.
+  Otherwise an instance keeps believing a dropped partition exists, and every
+  insert into that month fails. That class's javadoc says so.
+- **Retention must be longer than `app.ingest.max-sample-age`.** If it were
+  shorter, ingest could still accept a sample for a month retention had just
+  dropped, and the on-demand path would quietly recreate that partition.
+
+---
+
+<a id="e10"></a>
+## E10 - Production-grade admin authentication
+
+**Raised:** Milestone 1 Phase 5, [ADR 0003](decisions/0003-filter-based-auth.md)
+
+**Today.** One shared bearer token for all admin and dashboard access. It never
+expires, carries no identity, has no scopes, leaves no audit trail, and rotating
+it means a redeploy. The README flags this as deliberately not production-grade.
+
+**The idea.** Real identities -- for example OIDC through Amazon Cognito -- with
+per-user tokens, expiry and roles. At that point ADR 0003's reasoning flips, and
+Spring Security becomes the right tool rather than hand-written filters.
+
+---
+
+<a id="e11"></a>
+## E11 - Peppered (HMAC) device key digests
+
+**Raised:** Milestone 1 Phase 5, [ADR 0004](decisions/0004-sha-256-for-device-api-keys.md)
+
+**Today.** A device key is stored as a plain SHA-256 digest. That is appropriate
+for a 256-bit random key; ADR 0004 explains why a slow KDF is not.
+
+**The idea.** HMAC-SHA256 with a server-side secret held in Secrets Manager, so
+a copy of the database alone is not enough to check a guessed key.
+
+**Priority.** Low. Guessing a 256-bit random key is infeasible either way; this
+only matters under a threat model where the database leaks but the application
+secrets do not.
+
+---
+
+<a id="e12"></a>
+## E12 - Track data freshness separately from liveness
+
+**Raised:** Milestone 1 Phase 7, [ADR 0005](decisions/0005-last-seen-uses-server-clock.md)
+
+**Today.** `devices.last_seen_at` records when the server last stored data from
+a device -- liveness, by the server's clock. The bin list reports it as the last
+reading time.
+
+**The idea.** A second value: the newest `recordedAt` stored for the device, by
+the device's clock -- freshness of the data itself. The two differ during a
+back-fill, and a dashboard may want to show both.
+
+**Trigger.** When the dashboard needs it. Nothing does yet.
