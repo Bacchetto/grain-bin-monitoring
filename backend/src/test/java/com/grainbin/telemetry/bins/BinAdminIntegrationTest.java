@@ -393,6 +393,25 @@ class BinAdminIntegrationTest extends WebIntegrationTest {
 		}
 
 		@Test
+		@DisplayName("the key is never returned again after registration")
+		void keyIsReturnedOnlyOnce() {
+			long binId = createBin(uniqueName(), "Device Yard");
+			String apiKey = bodyOf(postAsAdmin("/api/v1/bins/" + binId + "/devices", "{}"))
+					.get("apiKey").asString();
+
+			// "Returned once" is a claim about every OTHER response, so check the
+			// ones that describe the bin. Neither the key nor its digest may
+			// appear -- the digest is what an attacker with the response would
+			// need to confirm a guess offline.
+			for (String path : new String[] { "/api/v1/bins", "/api/v1/bins/" + binId }) {
+				assertThat(getAsAdmin(path).getResponseBody())
+						.as(path)
+						.doesNotContain(apiKey)
+						.doesNotContain(DeviceApiKey.hash(apiKey));
+			}
+		}
+
+		@Test
 		@DisplayName("two devices on one bin get different keys")
 		void keysAreNotReused() {
 			long binId = createBin(uniqueName(), "Device Yard");
