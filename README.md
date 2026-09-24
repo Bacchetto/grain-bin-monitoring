@@ -318,8 +318,8 @@ Work in order. Each milestone ends with every check above passing and a short su
 
 ### Milestone 1: Core service (week 1)
 - [ ] Maven project with Spring Boot, Actuator, Web, Validation, JDBC or JPA (pick one and justify it in an ADR), Flyway, and Testcontainers
-- [ ] Flyway schema for bins, devices, partitioned readings, and alerts, with partition creation handled
-- [ ] Admin endpoints for bins and device registration (API key hashing)
+- [x] Flyway schema for bins, devices, partitioned readings, and alerts, with partition creation handled
+- [x] Admin endpoints for bins and device registration (API key hashing)
 - [ ] Ingest endpoint with idempotency, batch limits, and future-timestamp rejection
 - [ ] `latest` and bucketed `readings` query endpoints
 - [ ] Testcontainers integration tests covering duplicates, out-of-order samples, and a missing partition

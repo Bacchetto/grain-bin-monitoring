@@ -1,138 +1,72 @@
 package com.grainbin.telemetry.config;
 
-import com.grainbin.telemetry.TestcontainersConfiguration;
-import com.grainbin.telemetry.devices.AuthenticatedDevice;
 import com.grainbin.telemetry.devices.DeviceApiKey;
-import jakarta.servlet.http.HttpServletRequest;
+import com.grainbin.telemetry.support.WebIntegrationTest;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.test.context.TestConfiguration;
-import org.springframework.boot.test.web.server.LocalServerPort;
-import org.springframework.context.annotation.Import;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
-import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.test.web.servlet.client.EntityExchangeResult;
-import org.springframework.test.web.servlet.client.RestTestClient;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RestController;
 import tools.jackson.databind.JsonNode;
-import tools.jackson.databind.ObjectMapper;
-
-import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * Verifies the authentication filters against a running server.
  *
- * <p>Uses a real servlet container rather than MockMvc on purpose. Half of
- * what is under test here <em>is</em> the servlet registration: which URL
- * patterns each filter is mapped to, that the admin filter stands aside for
- * the ingest path, and that {@code /actuator} is outside both. MockMvc
- * approximates the filter chain, and an approximation is not what you want
- * when the question is "is any path accidentally unprotected".
+ * <p>The admin cases run against the real {@code GET /api/v1/bins}. Until
+ * Phase 6 that path was a stub in the test tree; when the real controller
+ * arrived the two mappings collided and failed the context outright, which is
+ * the desired way for a stub to expire.
  *
- * <p>Driven with {@code RestTestClient} rather than {@code TestRestTemplate}.
- * Spring Boot 4 moved {@code RestTemplate} support into its own module which
- * is not on the classpath by default, and {@code RestTestClient} is both
- * already available and the current idiom.
- *
- * <p>The endpoints below are stubs. The real controllers arrive in Phases 6
- * and 7; these exist so the filters have something to let a request through
- * to.
+ * <p>The ingest path is still stubbed -- see {@code IngestStubEndpoints} --
+ * because the real ingest controller is Phase 7.
  */
-@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
-@Import({ TestcontainersConfiguration.class, AuthenticationIntegrationTest.StubEndpoints.class })
-class AuthenticationIntegrationTest {
+class AuthenticationIntegrationTest extends WebIntegrationTest {
 
-	/**
-	 * Both a test configuration and the controller itself. A nested
-	 * {@code @RestController} would be picked up as a bean by virtue of being
-	 * a nested component <em>and</em> by an explicit {@code @Bean} method,
-	 * registering the same request mappings twice and failing the context with
-	 * "Ambiguous mapping".
-	 */
-	@TestConfiguration(proxyBeanMethods = false)
-	@RestController
-	static class StubEndpoints {
-
-		/** Echoes what the filter resolved, so the test can check it. */
-		@PostMapping("/api/v1/readings")
-		Map<String, Object> ingest(HttpServletRequest request) {
-			AuthenticatedDevice device = AuthenticatedDevice.require(request);
-			return Map.of("deviceId", device.deviceId(), "binId", device.binId());
-		}
-
-		@GetMapping("/api/v1/bins")
-		Map<String, String> bins() {
-			return Map.of("status", "ok");
-		}
-	}
-
-	@LocalServerPort
-	private int port;
-
-	@Autowired
-	private JdbcClient jdbc;
-
-	@Autowired
-	private ObjectMapper json;
-
-	@Value("${app.security.admin-token}")
-	private String adminToken;
-
-	private RestTestClient client;
 	private String deviceKey;
 	private long deviceId;
 	private long binId;
 
 	@BeforeEach
-	void setUp() {
-		client = RestTestClient.bindToServer().baseUrl("http://localhost:" + port).build();
-
-		binId = jdbc.sql("""
+	void registerADevice() {
+		this.binId = this.jdbc.sql("""
 				INSERT INTO bins (name, site, grain_type)
 				VALUES (?, 'Auth Test Yard', 'canola') RETURNING id
 				""").param("Bin " + System.nanoTime()).query(Long.class).single();
 
-		deviceKey = DeviceApiKey.generate();
-		deviceId = jdbc.sql("""
+		this.deviceKey = DeviceApiKey.generate();
+		this.deviceId = this.jdbc.sql("""
 				INSERT INTO devices (bin_id, api_key_hash) VALUES (?, ?) RETURNING id
-				""").param(binId).param(DeviceApiKey.hash(deviceKey)).query(Long.class).single();
+				""").param(this.binId).param(DeviceApiKey.hash(this.deviceKey)).query(Long.class).single();
 	}
 
 	// -----------------------------------------------------------------------
-	// helpers
+	// helpers -- these send deliberately wrong or absent credentials, so they
+	// cannot use the authenticated helpers on the base class
 	// -----------------------------------------------------------------------
 
-	/** POST with no credential. */
 	private EntityExchangeResult<String> post(String path) {
-		return client.post().uri(path).exchange().returnResult(String.class);
+		return this.client.post().uri(path).exchange().returnResult(String.class);
 	}
 
 	private EntityExchangeResult<String> post(String path, String header, String value) {
-		return client.post().uri(path).header(header, value).exchange().returnResult(String.class);
+		return this.client.post().uri(path).header(header, value).exchange().returnResult(String.class);
 	}
 
-	/** GET with no credential. */
 	private EntityExchangeResult<String> get(String path) {
-		return client.get().uri(path).exchange().returnResult(String.class);
+		return this.client.get().uri(path).exchange().returnResult(String.class);
 	}
 
 	private EntityExchangeResult<String> get(String path, String header, String value) {
-		return client.get().uri(path).header(header, value).exchange().returnResult(String.class);
+		return this.client.get().uri(path).header(header, value).exchange().returnResult(String.class);
 	}
 
 	private String detailOf(EntityExchangeResult<String> result) {
-		return json.readTree(result.getResponseBody()).get("detail").asString();
+		return bodyOf(result).get("detail").asString();
 	}
 
 	/** Asserts the response is a well-formed RFC 9457 401. */
@@ -148,7 +82,7 @@ class AuthenticationIntegrationTest {
 				.as("RFC 9110 requires a challenge on a 401")
 				.isEqualTo(expectedChallenge);
 
-		JsonNode body = json.readTree(result.getResponseBody());
+		JsonNode body = bodyOf(result);
 		assertThat(body.get("status").asInt()).isEqualTo(401);
 		assertThat(body.get("title").asString()).isEqualTo("Unauthorized");
 		assertThat(body.get("detail").asString()).isNotBlank();
@@ -171,7 +105,7 @@ class AuthenticationIntegrationTest {
 
 			// The controller never saw the key -- it read the device the filter
 			// resolved. This is what stops a device writing to another bin.
-			JsonNode body = json.readTree(result.getResponseBody());
+			JsonNode body = bodyOf(result);
 			assertThat(body.get("deviceId").asLong()).isEqualTo(deviceId);
 			assertThat(body.get("binId").asLong()).isEqualTo(binId);
 		}
@@ -226,10 +160,7 @@ class AuthenticationIntegrationTest {
 		@Test
 		@DisplayName("the configured bearer token is accepted")
 		void validTokenIsAccepted() {
-			EntityExchangeResult<String> result =
-					get("/api/v1/bins", HttpHeaders.AUTHORIZATION, "Bearer " + adminToken);
-
-			assertThat(result.getStatus()).isEqualTo(HttpStatus.OK);
+			assertThat(getAsAdmin("/api/v1/bins").getStatus()).isEqualTo(HttpStatus.OK);
 		}
 
 		@Test
@@ -249,9 +180,7 @@ class AuthenticationIntegrationTest {
 		@DisplayName("a token of the right length but wrong content is rejected")
 		void sameLengthTokenIsRejected() {
 			// The comparison hashes both sides before comparing, so it cannot
-			// short-circuit on a length difference. This is the case that would
-			// pass anyway with a naive equals() -- it is here to pin the
-			// behaviour, not because it is likely to regress on its own.
+			// short-circuit on a length difference. This pins that behaviour.
 			String sameLength = "x".repeat(adminToken.length());
 
 			assertIsProblemJsonUnauthorized(
