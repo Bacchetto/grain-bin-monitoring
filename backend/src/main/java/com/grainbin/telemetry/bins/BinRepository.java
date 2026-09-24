@@ -11,7 +11,8 @@ import java.util.Optional;
 /**
  * Reads and writes bins.
  *
- * <p>Hand-written SQL via {@link JdbcClient}, per the JDBC-over-JPA decision.
+ * <p>Hand-written SQL via {@link JdbcClient}, per the JDBC-over-JPA decision in
+ * {@code docs/decisions/0008-spring-jdbc-over-jpa.md}.
  * Every query here is visible in full, which is the point.
  */
 @Repository

@@ -30,7 +30,8 @@
 			NOTE ON SPRING BOOT 4 NAMING: the starter formerly called
 			spring-boot-starter-web is now spring-boot-starter-webmvc, and Flyway
 			now needs its own explicit starter. Most tutorials online still show
-			the Boot 3 names.
+			the Boot 3 names. Every Boot 4 difference met so far is listed in
+			docs/decisions/0009-spring-boot-4.md.
 		-->
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
@@ -45,7 +46,8 @@
 
 		<!--
 			JdbcClient / JdbcTemplate and a HikariCP connection pool.
-			This project uses plain Spring JDBC rather than JPA; see the ADR.
+			This project uses plain Spring JDBC rather than JPA; see
+			docs/decisions/0008-spring-jdbc-over-jpa.md.
 		-->
 		<dependency>
 			<groupId>org.springframework.boot</groupId>

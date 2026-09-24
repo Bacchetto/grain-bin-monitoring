@@ -15,5 +15,10 @@
  * plans, measured on 6.2 million rows, and the reason one index was dropped
  * after they were measured, are in
  * {@code docs/decisions/0007-read-path-indexes-verified-with-explain-analyze.md}.
+ *
+ * <p>Why the table is partitioned by month, and why each reading carries
+ * {@code bin_id} as well as {@code device_id}:
+ * {@code docs/decisions/0010-monthly-range-partitioning.md} and
+ * {@code docs/decisions/0011-bin-id-denormalised-onto-readings.md}.
  */
 package com.grainbin.telemetry.readings;

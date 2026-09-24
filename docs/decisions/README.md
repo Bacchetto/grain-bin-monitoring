@@ -52,17 +52,8 @@ of them; package docs carry anything that might need updating later.
 | [0005](0005-last-seen-uses-server-clock.md) | `last_seen_at` records the server's clock, not the device's | `ingest` |
 | [0006](0006-reject-samples-older-than-a-configurable-age.md) | Reject samples older than a configurable age (default 30 days) | `ingest` |
 | [0007](0007-read-path-indexes-verified-with-explain-analyze.md) | Read-path indexes, verified with `EXPLAIN ANALYZE`; unused sensor index dropped | `readings`, `V5` |
-
-## Decisions already made, pending write-up
-
-These were settled before implementation started and are recorded here so they
-are not lost. Each becomes a numbered ADR during Milestone 1.
-
-- **Spring JDBC over JPA/Hibernate.** The ingest hot path and the time-series
-  aggregates are hand-written SQL either way; one persistence model is easier
-  to explain than two.
-- **Spring Boot 4.1.x over 3.5.x.** The spec says "latest stable".
-- **Monthly range partitioning of `readings`.** Why one partition per month,
-  and why there is no `samples` table.
-- **`bin_id` denormalised onto `readings`.**
-- **Rancher Desktop as the local container runtime** (over Docker Desktop).
+| [0008](0008-spring-jdbc-over-jpa.md) | Spring JDBC rather than JPA | all repositories |
+| [0009](0009-spring-boot-4.md) | Spring Boot 4.1, not 3.5 | `pom.xml` |
+| [0010](0010-monthly-range-partitioning.md) | Range-partition `readings` by month | `V2`, `readings` |
+| [0011](0011-bin-id-denormalised-onto-readings.md) | Store `bin_id` on every reading | `V2`, `ingest` |
+| [0012](0012-rancher-desktop-for-local-containers.md) | Rancher Desktop as the local container runtime | local development |

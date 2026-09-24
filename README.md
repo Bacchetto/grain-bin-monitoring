@@ -39,6 +39,8 @@ This project demonstrates production-style backend engineering end to end: API d
 > `spring-boot-starter-webmvc`, Flyway needs an explicit
 > `spring-boot-starter-flyway`, and `spring-boot-starter-test` is split into
 > per-module `*-test` starters. Most tutorials still describe the Boot 3 names.
+> Every difference met so far, including one that fails silently, is listed in
+> [ADR 0009](docs/decisions/0009-spring-boot-4.md).
 
 ---
 
@@ -132,7 +134,7 @@ Rules:
 
 ### Admin and dashboard
 
-Authenticated with `Authorization: Bearer <ADMIN_TOKEN>`, where the token comes from an environment variable. This is deliberately simple and is **not production-grade auth**. Record this tradeoff in an ADR.
+Authenticated with `Authorization: Bearer <ADMIN_TOKEN>`, where the token comes from an environment variable. This is deliberately simple and is **not production-grade auth**. The tradeoff is recorded in [ADR 0003](docs/decisions/0003-filter-based-auth.md), and a replacement is enhancement [E10](docs/enhancements.md#e10).
 
 | Method | Path | Purpose |
 |---|---|---|
@@ -143,8 +145,8 @@ Authenticated with `Authorization: Bearer <ADMIN_TOKEN>`, where the token comes 
 | POST | `/bins/{id}/devices` | Register a device. Returns the plaintext API key **once**. |
 | GET | `/bins/{id}/latest` | Latest reading per sensor, from the last 7 days; a sensor silent for longer is omitted rather than shown stale |
 | GET | `/bins/{id}/readings?from=&to=&bucket=hour\|day` | Time-bucketed averages, min, and max per sensor over `[from, to)`. Buckets align to UTC; at most 1,000 per sensor per request |
-| GET | `/alerts?status=open\|acknowledged\|resolved&binId=` | List alerts |
-| POST | `/alerts/{id}/acknowledge` | Acknowledge an alert |
+| GET | `/alerts?status=open\|acknowledged\|resolved&binId=` | List alerts *(Milestone 2)* |
+| POST | `/alerts/{id}/acknowledge` | Acknowledge an alert *(Milestone 2)* |
 
 Health and metrics are served at `/actuator/health` and `/actuator/prometheus`.
 
@@ -251,6 +253,7 @@ Organize backend packages by feature (`ingest`, `alerts`, `bins`), not by layer.
   (moby)** -- containerd has no Docker-compatible API, so Testcontainers cannot
   use it. On Windows, also set the environment variable
   `DOCKER_HOST=npipe:////./pipe/docker_engine` so Testcontainers can find it.
+  See [ADR 0012](docs/decisions/0012-rancher-desktop-for-local-containers.md).
 - **Configuration:** `cp .env.example .env`, then set `ADMIN_TOKEN` (the file
   shows how to generate one). This one file configures both Docker Compose and
   the API.
@@ -349,7 +352,7 @@ Region: `ca-central-1`. Split files by concern: `network.tf`, `ecr.tf`, `ecs.tf`
 Work in order. Each milestone ends with every check above passing and a short summary of what changed.
 
 ### Milestone 1: Core service (week 1)
-- [ ] Maven project with Spring Boot, Actuator, Web, Validation, JDBC or JPA (pick one and justify it in an ADR), Flyway, and Testcontainers
+- [x] Maven project with Spring Boot, Actuator, Web, Validation, JDBC or JPA (pick one and justify it in an ADR), Flyway, and Testcontainers -- JDBC, see [ADR 0008](docs/decisions/0008-spring-jdbc-over-jpa.md)
 - [x] Flyway schema for bins, devices, partitioned readings, and alerts, with partition creation handled
 - [x] Admin endpoints for bins and device registration (API key hashing)
 - [x] Ingest endpoint with idempotency, batch limits, and future-timestamp rejection
