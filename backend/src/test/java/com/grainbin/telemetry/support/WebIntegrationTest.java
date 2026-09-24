@@ -7,6 +7,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.context.annotation.Import;
+import org.springframework.test.context.TestPropertySource;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.simple.JdbcClient;
@@ -30,6 +31,16 @@ import tools.jackson.databind.ObjectMapper;
  * repeated. Adding {@code @Import} or {@code @TestPropertySource} to a
  * subclass forks a second context and starts a second container.
  *
+ * <p><strong>The ingest age limit is widened to a year here, on purpose.</strong>
+ * The shipped default is 30 days, and within 30 days every accepted sample
+ * lands in the current or previous month -- both of which always have a
+ * partition. That makes the on-demand partition path unreachable through the
+ * API under default settings, which is fine in production (it is a backstop)
+ * but would leave it untested end to end. A year makes months with no
+ * partition reachable. The default itself is asserted separately, in
+ * {@code IngestPropertiesTest}. Set here, on the base, so every web test still
+ * shares one context.
+ *
  * <p>Tests here are <em>not</em> transactional. They exercise the real request
  * path, and a request handled by the server runs in its own transaction, so a
  * rollback around the test method would not undo it anyway. Each test creates
@@ -37,6 +48,7 @@ import tools.jackson.databind.ObjectMapper;
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @Import(TestcontainersConfiguration.class)
+@TestPropertySource(properties = "app.ingest.max-sample-age=365d")
 public abstract class WebIntegrationTest {
 
 	@LocalServerPort

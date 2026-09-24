@@ -30,7 +30,8 @@ import java.util.List;
  *       in the request -- the future cutoff, {@code received_at},
  *       {@code last_seen_at} -- uses this single instant, so they cannot
  *       disagree with each other.</li>
- *   <li>Set aside samples recorded more than five minutes in the future. They
+ *   <li>Set aside samples recorded more than five minutes in the future, or
+ *       longer ago than the configured maximum age (30 days by default). They
  *       are counted as rejected; the rest of the batch continues.</li>
  *   <li>Make sure a partition exists for every month in the batch --
  *       <em>outside</em> the write transaction (see below).</li>
@@ -90,13 +91,15 @@ public class IngestService {
 	private final TransactionTemplate transactions;
 	private final PartitionMaintenanceService partitions;
 	private final Clock clock;
+	private final Duration maxSampleAge;
 
 	public IngestService(JdbcTemplate jdbc, PlatformTransactionManager transactionManager,
-			PartitionMaintenanceService partitions, Clock clock) {
+			PartitionMaintenanceService partitions, Clock clock, IngestProperties properties) {
 		this.jdbc = jdbc;
 		this.transactions = new TransactionTemplate(transactionManager);
 		this.partitions = partitions;
 		this.clock = clock;
+		this.maxSampleAge = properties.maxSampleAge();
 	}
 
 	/** One reading, flattened out of its sample, ready to bind. */
@@ -110,11 +113,15 @@ public class IngestService {
 	public IngestResponse ingest(AuthenticatedDevice device, List<IngestRequest.Sample> samples) {
 		Instant receivedAt = this.clock.instant();
 		Instant latestAcceptable = receivedAt.plus(MAX_FUTURE_SKEW);
+		// The floor. Beyond stopping junk data, it bounds which partitions a
+		// device can cause to be created: without it, any authenticated device
+		// with a reset clock could trigger DDL for an arbitrary past month.
+		Instant earliestAcceptable = receivedAt.minus(this.maxSampleAge);
 
 		List<Row> rows = new ArrayList<>();
 		int rejected = 0;
 		for (IngestRequest.Sample sample : samples) {
-			if (sample.recordedAt().isAfter(latestAcceptable)) {
+			if (sample.recordedAt().isAfter(latestAcceptable) || sample.recordedAt().isBefore(earliestAcceptable)) {
 				rejected += sample.sensors().size();
 				continue;
 			}
@@ -125,7 +132,7 @@ public class IngestService {
 
 		if (rows.isEmpty()) {
 			// Everything was rejected. Nothing is written and last_seen_at does
-			// not move: a device sending only future-dated data is, from a data
+			// not move: a device sending only out-of-window data is, from a data
 			// standpoint, not reporting.
 			return new IngestResponse(0, 0, rejected);
 		}

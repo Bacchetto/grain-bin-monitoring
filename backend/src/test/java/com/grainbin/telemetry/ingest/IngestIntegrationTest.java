@@ -14,6 +14,7 @@ import java.math.BigDecimal;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.OffsetDateTime;
+import java.time.YearMonth;
 import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
@@ -108,6 +109,16 @@ class IngestIntegrationTest extends WebIntegrationTest {
 				.optional()
 				.map(OffsetDateTime::toInstant)
 				.orElse(null);
+	}
+
+	/** The partition a reading recorded at this instant belongs in. */
+	private static String partitionFor(Instant instant) {
+		YearMonth month = YearMonth.from(instant.atZone(ZoneOffset.UTC));
+		return "readings_%04d_%02d".formatted(month.getYear(), month.getMonthValue());
+	}
+
+	private static Instant startOfMonthContaining(Instant instant) {
+		return YearMonth.from(instant.atZone(ZoneOffset.UTC)).atDay(1).atStartOfDay(ZoneOffset.UTC).toInstant();
 	}
 
 	private boolean partitionExists(String name) {
@@ -270,31 +281,36 @@ class IngestIntegrationTest extends WebIntegrationTest {
 		@Test
 		@DisplayName("a reading in a month with no partition creates one instead of failing")
 		void missingPartitionIsCreatedOnDemand() {
-			// March 2019 is years outside the window the migration and the
-			// scheduled job create. Without the on-demand call this insert would
-			// fail outright -- there is no default partition to fall back on.
-			assertThat(partitionExists("readings_2019_03")).isFalse();
+			// About six months back: outside the window the migration seeds and
+			// the scheduler maintains, but inside the age limit the web tests
+			// run with. Without the on-demand call this insert would fail
+			// outright -- there is no default partition to fall back on.
+			Instant recordedAt = now().minus(Duration.ofDays(180));
+			String partition = partitionFor(recordedAt);
+			assertThat(partitionExists(partition)).isFalse();
 
-			assertCounts(sendAccepted(batch(sample(1, Instant.parse("2019-03-15T12:00:00Z"), sensor(0, 0, "8.0")))),
-					1, 0, 0);
+			assertCounts(sendAccepted(batch(sample(1, recordedAt, sensor(0, 0, "8.0")))), 1, 0, 0);
 
-			assertThat(partitionExists("readings_2019_03")).isTrue();
+			assertThat(partitionExists(partition)).isTrue();
 			assertThat(jdbc.sql("SELECT tableoid::regclass::text FROM readings WHERE device_id = ?")
 					.param(device.deviceId()).query(String.class).single())
-					.isEqualTo("readings_2019_03");
+					.isEqualTo(partition);
 		}
 
 		@Test
 		@DisplayName("one batch spanning a month boundary lands in both partitions")
 		void batchAcrossMonthBoundary() {
+			Instant boundary = startOfMonthContaining(now().minus(Duration.ofDays(300)));
+			Instant lastSecondBefore = boundary.minusSeconds(1);
+
 			assertCounts(sendAccepted(batch(
-					sample(1, Instant.parse("2019-05-31T23:59:59Z"), sensor(0, 0, "9.0")),
-					sample(2, Instant.parse("2019-06-01T00:00:00Z"), sensor(0, 0, "9.1")))), 2, 0, 0);
+					sample(1, lastSecondBefore, sensor(0, 0, "9.0")),
+					sample(2, boundary, sensor(0, 0, "9.1")))), 2, 0, 0);
 
 			assertThat(jdbc.sql("""
 					SELECT tableoid::regclass::text FROM readings WHERE device_id = ? ORDER BY recorded_at
 					""").param(device.deviceId()).query(String.class).list())
-					.containsExactly("readings_2019_05", "readings_2019_06");
+					.containsExactly(partitionFor(lastSecondBefore), partitionFor(boundary));
 		}
 	}
 
@@ -338,6 +354,40 @@ class IngestIntegrationTest extends WebIntegrationTest {
 					+ response.get("rejected").asInt();
 			assertThat(total).isEqualTo(6);
 			assertCounts(response, 2, 1, 3);
+		}
+	}
+
+	// -----------------------------------------------------------------------
+	// too old -- ADR 0006. The web tests run with a one-year limit; the 30-day
+	// shipped default is pinned in IngestPropertiesTest.
+	// -----------------------------------------------------------------------
+
+	@Nested
+	class TooOld {
+
+		@Test
+		@DisplayName("samples older than the maximum age are rejected; the rest of the batch is kept")
+		void tooOldSamplesAreRejectedIndividually() {
+			Instant t = now();
+
+			JsonNode response = sendAccepted(batch(
+					sample(1, t.minus(Duration.ofDays(366)), sensor(0, 0, "9.0"), sensor(0, 1, "9.1")),
+					sample(2, t.minus(Duration.ofDays(364)), sensor(0, 0, "9.2")),
+					sample(3, t, sensor(0, 0, "9.3"))));
+
+			assertCounts(response, 2, 0, 2);
+			assertThat(storedReadings()).isEqualTo(2);
+		}
+
+		@Test
+		@DisplayName("a device whose clock reset to 1970 creates no 1970 partition")
+		void resetClockCreatesNoPartition() {
+			// The case the limit exists for. Before it, this sample would have
+			// been accepted and caused DDL for January 1970.
+			assertCounts(sendAccepted(batch(sample(1, Instant.EPOCH, sensor(0, 0, "11.0")))), 0, 0, 1);
+
+			assertThat(partitionExists("readings_1970_01")).isFalse();
+			assertThat(lastSeen()).as("nothing stored, so not seen").isNull();
 		}
 	}
 

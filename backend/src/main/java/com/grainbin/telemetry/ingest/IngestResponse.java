@@ -15,8 +15,10 @@ package com.grainbin.telemetry.ingest;
  * @param accepted   newly stored
  * @param duplicates already stored by an earlier request, or repeated within
  *                   this one; not stored again
- * @param rejected   not stored because the sample was recorded more than five
- *                   minutes in the future by the server's clock
+ * @param rejected   not stored because the sample was recorded outside the
+ *                   accepted window: more than five minutes in the future, or
+ *                   longer ago than {@code app.ingest.max-sample-age} (30 days
+ *                   by default), both by the server's clock
  */
 public record IngestResponse(int accepted, int duplicates, int rejected) {
 }

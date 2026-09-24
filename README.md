@@ -123,6 +123,7 @@ Rules:
 - The device is identified from its key. It never sends its own ID.
 - Maximum 500 samples per batch. Return 413 if exceeded.
 - Reject samples with `recordedAt` more than 5 minutes in the future, and count them as `rejected`. The rest of the batch is still processed.
+- Likewise reject samples recorded longer ago than `app.ingest.max-sample-age` (default **30 days**, overridable with `APP_INGEST_MAX_SAMPLE_AGE`). This stops a device whose clock has reset from writing into long-past partitions. See [ADR 0006](docs/decisions/0006-reject-samples-older-than-a-configurable-age.md).
 - All three counts are in **readings** (one per sensor value), not samples, so `accepted + duplicates + rejected` always equals the number of sensor values sent.
 - A structurally invalid reading (a missing field, or a value its column cannot store) fails the whole batch with `400`, and the error names it by path, e.g. `samples[3].sensors[0].temperatureC`.
 - Samples may arrive out of order. Order is determined by `recordedAt`, not arrival.
@@ -223,6 +224,7 @@ Built with Vite + React + TypeScript and strict mode on. Keep it small and funct
 ├── docs/
 │   ├── architecture.md
 │   ├── results.md            Load test results
+│   ├── enhancements.md       Possible future enhancements, not yet scheduled
 │   └── decisions/            ADRs (NNNN-title.md)
 ├── .github/workflows/
 ├── docker-compose.yml
