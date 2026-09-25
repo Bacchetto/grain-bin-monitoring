@@ -5,8 +5,18 @@
  * device-offline alerts run on a schedule. Alerts move
  * OPEN -&gt; ACKNOWLEDGED -&gt; RESOLVED.
  *
- * <p>Milestone 1 provides only the database schema; the engine arrives in
- * Milestone 2.
+ * <p>The pieces:
+ *
+ * <ul>
+ *   <li>{@link com.grainbin.telemetry.alerts.AlertRepository} -- single-statement
+ *       writes: the two upserts and the clear-and-maybe-resolve.</li>
+ *   <li>{@link com.grainbin.telemetry.alerts.AlertLifecycle} -- what evaluators
+ *       call; pairs each write with the transition it causes.</li>
+ *   <li>{@link com.grainbin.telemetry.alerts.AlertTransitions} -- the metric and
+ *       the structured log line, reported only after commit.</li>
+ *   <li>{@link com.grainbin.telemetry.alerts.SensorPlausibility} -- keeps probe
+ *       fault values out of evaluation.</li>
+ * </ul>
  *
  * <h2>De-duplication: two rules, not one</h2>
  *
