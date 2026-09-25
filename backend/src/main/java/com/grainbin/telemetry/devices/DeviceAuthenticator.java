@@ -37,7 +37,8 @@ public class DeviceAuthenticator {
 		// need invalidating when a device is deleted or re-keyed -- which
 		// would mean a revoked key kept working until the entry expired. If
 		// load testing shows this matters, cache with a short TTL and accept
-		// that revocation is delayed by it, as an explicit decision.
+		// that revocation is delayed by it, as an explicit decision. (There
+		// is no revocation at all yet: docs/enhancements.md, E7.)
 		return jdbc.sql("""
 				SELECT id, bin_id, expected_interval_seconds
 				FROM devices

@@ -148,6 +148,8 @@ Authenticated with `Authorization: Bearer <ADMIN_TOKEN>`, where the token comes 
 | GET | `/alerts?status=open\|acknowledged\|resolved&binId=` | List alerts *(Milestone 2)* |
 | POST | `/alerts/{id}/acknowledge` | Acknowledge an alert *(Milestone 2)* |
 
+Device API keys cannot be revoked yet: a lost or leaked key keeps working until its device is removed from the database by hand. This is a known gap, enhancement [E7](docs/enhancements.md#e7).
+
 Health and metrics are served at `/actuator/health` and `/actuator/prometheus`.
 
 ---
@@ -173,6 +175,7 @@ Lifecycle and rules:
   [ADR 0002](docs/decisions/0002-device-scoped-offline-alert-dedupe.md).
 - Auto-resolve when the condition has been clear for 3 consecutive evaluations. This prevents flapping.
 - `DEVICE_OFFLINE` must be based on the last **successfully stored** reading, not on connection attempts. A device that connects but sends only rejected or duplicate data is still offline from a data standpoint.
+- Probe fault values are stored as ordinary readings today. A disconnected DS18B20 reads −127 °C, so a recovery to 12 °C looks like a 139 °C rise, and a probe that has just powered on reads 85 °C. How the engine keeps these out of evaluation is to be decided with it: enhancement [E3](docs/enhancements.md#e3).
 - Every alert state change is logged as structured JSON and counted with a Micrometer counter (`alerts_transitions_total{type,to_state}`).
 
 ---
@@ -196,6 +199,8 @@ python simulator/sim.py --url http://localhost:8080 --scenario normal --bins 5 -
 Use `--time-scale` to compress simulated time so that multi-day scenarios run in minutes. The simulator also has a `--seed-bins` mode that creates bins and devices through the admin API and writes the device keys to a local, git-ignored file.
 
 **Implemented so far:** `--seed-bins`, `normal` and `flaky`. `hotspot`, `wet`, `offline` and `--time-scale` arrive in Milestone 2.
+
+`--time-scale` cannot speed up `offline`. `DEVICE_OFFLINE` compares the server's clock with `last_seen_at`, which is also set from the server's clock ([ADR 0005](docs/decisions/0005-last-seen-uses-server-clock.md)), so nothing the simulator does to `recordedAt` moves it. The alert fires after three real registered intervals: at least 90 seconds.
 
 - `--seed-bins N` is safe to repeat: bins it already holds keys for are left alone. Keys are stored per `--url`, so seeding a deployed stack does not overwrite the local keys. Devices are registered as reporting every 30 seconds at least, the backend's minimum; streaming more often is fine.
 - `--cycles N` stops after N samples per device; without it the simulator runs until Ctrl-C. `--seed` makes a run repeatable.
@@ -276,7 +281,7 @@ Still to come: Prometheus and Grafana in Compose, the front end
 `docker compose up` running everything, including the API container, arrives in
 Milestone 3 with the Dockerfile.
 
-Configuration comes from environment variables (see `.env.example`): `DB_URL`, `DB_USER`, `DB_PASSWORD`, `ADMIN_TOKEN`, `CORS_ALLOWED_ORIGINS`, and optionally `APP_INGEST_MAX_SAMPLE_AGE`. Never commit `.env`.
+Configuration comes from environment variables (see `.env.example`): `DB_URL`, `DB_USER`, `DB_PASSWORD`, `ADMIN_TOKEN`, `CORS_ALLOWED_ORIGINS`, and optionally `APP_INGEST_MAX_SAMPLE_AGE`. Never commit `.env`. `CORS_ALLOWED_ORIGINS` is not read by the API yet; it is wired up in Milestone 2 with the front end that needs it.
 
 Spring Boot does not read `.env` files by itself. `./mvnw spring-boot:run` switches on a `local` profile that imports the root `.env`, so the API and Compose always agree -- change the database password there and both sides see it. A variable exported in the shell still wins. The tests never activate that profile, so a developer's `.env` cannot change what they see.
 

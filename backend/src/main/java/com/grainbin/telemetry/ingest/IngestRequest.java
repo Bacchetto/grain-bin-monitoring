@@ -66,6 +66,7 @@ public record IngestRequest(@NotEmpty List<@NotNull @Valid Sample> samples) {
 	 * would otherwise surface as a database error, but a value that is merely
 	 * implausible -- the {@code -127} a disconnected DS18B20 probe reports -- is a
 	 * data-quality question for the alert engine, not a reason to fail the batch.
+ * See {@code docs/enhancements.md}, E3.
 	 *
 	 * <p>The upper bound on cable and depth keeps values inside {@code SMALLINT}
 	 * with room to spare; no real bin has 256 cables.

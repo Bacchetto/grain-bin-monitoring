@@ -163,7 +163,9 @@ public class IngestService {
 
 			// Milestone 2: synchronous threshold-alert evaluation belongs here,
 			// inside the transaction, so an alert and the reading that triggered
-			// it commit together or not at all.
+			// it commit together or not at all. The upsert needs a different
+			// ON CONFLICT target per alert type; see the alerts package and
+			// docs/decisions/0002-device-scoped-offline-alert-dedupe.md.
 
 			return new IngestResponse(accepted, duplicates, rejectedCount);
 		});

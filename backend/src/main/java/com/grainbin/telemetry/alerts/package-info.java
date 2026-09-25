@@ -55,6 +55,11 @@
  *       it reduces to a severity rather than a count.</li>
  *   <li>Auto-resolve is per alert row, so one device recovering must not clear
  *       another device's outage on the same bin.</li>
+ *   <li>Probe fault values are stored as ordinary readings. A disconnected
+ *       DS18B20 reports {@code -127}, which makes the next real value look
+ *       like a huge {@code RATE_OF_RISE}, and {@code 85} on power-up trips
+ *       {@code HIGH_TEMPERATURE}. Decide how to exclude them with the engine,
+ *       not after it: {@code docs/enhancements.md}, E3.</li>
  *   <li>Lifecycle invariants are {@code CHECK} constraints in the database, so
  *       setting {@code status} and its matching timestamp must happen in the
  *       same statement or the write is rejected.</li>
