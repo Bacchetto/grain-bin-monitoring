@@ -174,6 +174,9 @@ Lifecycle and rules:
   controllers on one bin raise two alerts and each resolves on its own recovery. See
   [ADR 0002](docs/decisions/0002-device-scoped-offline-alert-dedupe.md).
 - Auto-resolve when the condition has been clear for 3 consecutive evaluations. This prevents flapping.
+  For the on-ingest alerts, one evaluation is one batch's newest *newly stored* reading per sensor: a resent
+  duplicate batch evaluates nothing, a buffered backlog counts once, and a batch that arrives after newer data
+  for the same sensor is not evaluated at all.
 - `DEVICE_OFFLINE` must be based on the last **successfully stored** reading, not on connection attempts. A device that connects but sends only rejected or duplicate data is still offline from a data standpoint.
 - Probe fault values are stored and shown, but never evaluated. Firmware commonly reports −127 °C for an unreadable DS18B20, which would make a recovery to 12 °C look like a 139 °C rise, and the probe itself reads 85 °C before its first conversion after power-up. The engine skips exactly 85.0 °C and anything outside −60..100 °C; the range is wide so that genuinely heating grain is never mistaken for a fault. A fuller treatment is enhancement [E3](docs/enhancements.md#e3).
 - Every alert state change is logged as structured JSON and counted with a Micrometer counter (`alerts_transitions_total{type,to_state}`).

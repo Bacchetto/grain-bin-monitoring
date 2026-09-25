@@ -10,6 +10,8 @@ import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
 
 /**
  * The two dashboard read queries.
@@ -146,6 +148,39 @@ public class ReadingQueryRepository {
 			series.getLast().points().add(row.point());
 		}
 		return series;
+	}
+
+	/** A sensor position within a bin. */
+	public record SensorPosition(int cable, int depth) {
+	}
+
+	/**
+	 * The newest {@code recorded_at} per sensor, among readings recorded
+	 * strictly after {@code after}.
+	 *
+	 * <p>The alert engine uses this to recognise a batch that arrived late --
+	 * one whose readings are older than something already stored for the same
+	 * sensor. In the common case the batch holds the newest data and this
+	 * returns nothing. It reads only a narrow slice of the
+	 * {@code (bin_id, recorded_at)} index, from {@code after} to the present,
+	 * and prunes every older partition.
+	 */
+	public Map<SensorPosition, Instant> newestPerSensorAfter(long binId, Instant after) {
+		return this.jdbc.sql("""
+				SELECT cable_index, depth_index, max(recorded_at) AS newest
+				FROM readings
+				WHERE bin_id = ?
+				  AND recorded_at > ?
+				GROUP BY cable_index, depth_index
+				""")
+				.param(binId)
+				.param(utc(after))
+				.query((rs, rowNum) -> Map.entry(
+						new SensorPosition(rs.getInt("cable_index"), rs.getInt("depth_index")),
+						instant(rs, "newest")))
+				.list()
+				.stream()
+				.collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
 	}
 
 	private static OffsetDateTime utc(Instant instant) {

@@ -6,6 +6,7 @@ import org.springframework.stereotype.Repository;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.OffsetDateTime;
+import java.util.List;
 import java.util.Optional;
 
 import static com.grainbin.telemetry.config.ClockConfig.APPLICATION_ZONE;
@@ -183,6 +184,35 @@ public class AlertRepository {
 						AlertType.valueOf(rs.getString("type")),
 						AlertStatus.valueOf(rs.getString("status")) == AlertStatus.RESOLVED))
 				.optional();
+	}
+
+	/** A non-resolved sensor alert: enough to find it again for a clear. */
+	public record OpenSensorAlert(long alertId, AlertType type, int cableIndex, int depthIndex) {
+	}
+
+	/**
+	 * The bin's open and acknowledged alerts of the given sensor types. Uses
+	 * {@code alerts_bin_status_idx}; a bin has a handful of these at most.
+	 */
+	public List<OpenSensorAlert> findOpenSensorAlerts(long binId, List<AlertType> types) {
+		if (types.stream().anyMatch(type -> !type.isSensorAlert())) {
+			throw new IllegalArgumentException("Only sensor alert types have a position: " + types);
+		}
+		return this.jdbc.sql("""
+				SELECT id, type, cable_index, depth_index
+				FROM alerts
+				WHERE bin_id = :binId
+				  AND status <> 'RESOLVED'
+				  AND type IN (:types)
+				""")
+				.param("binId", binId)
+				.param("types", types.stream().map(AlertType::name).toList())
+				.query((rs, rowNum) -> new OpenSensorAlert(
+						rs.getLong("id"),
+						AlertType.valueOf(rs.getString("type")),
+						rs.getInt("cable_index"),
+						rs.getInt("depth_index")))
+				.list();
 	}
 
 	private static OffsetDateTime utc(Instant instant) {

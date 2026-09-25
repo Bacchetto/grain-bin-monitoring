@@ -16,6 +16,10 @@
  *       the structured log line, reported only after commit.</li>
  *   <li>{@link com.grainbin.telemetry.alerts.SensorPlausibility} -- keeps probe
  *       fault values out of evaluation.</li>
+ *   <li>{@link com.grainbin.telemetry.alerts.ThresholdEvaluator} --
+ *       {@code HIGH_TEMPERATURE} and {@code HIGH_MOISTURE}, called by ingest
+ *       inside its transaction. Its javadoc defines what counts as one
+ *       evaluation.</li>
  * </ul>
  *
  * <h2>De-duplication: two rules, not one</h2>

@@ -1,5 +1,6 @@
 package com.grainbin.telemetry.ingest;
 
+import com.grainbin.telemetry.alerts.ThresholdEvaluator;
 import com.grainbin.telemetry.config.ClockConfig;
 import com.grainbin.telemetry.devices.AuthenticatedDevice;
 import com.grainbin.telemetry.readings.PartitionMaintenanceService;
@@ -37,8 +38,9 @@ import java.util.List;
  *       <em>outside</em> the write transaction (see below).</li>
  *   <li>In one transaction: insert every reading with
  *       {@code ON CONFLICT DO NOTHING}, count the outcomes from the per-row
- *       update counts, and advance {@code last_seen_at} if anything was
- *       stored.</li>
+ *       update counts, advance {@code last_seen_at} if anything was
+ *       stored, and evaluate the threshold alerts against the readings that
+ *       were stored ({@link ThresholdEvaluator}).</li>
  * </ol>
  *
  * <h2>Why the partition step is outside the transaction</h2>
@@ -92,10 +94,13 @@ public class IngestService {
 	private final PartitionMaintenanceService partitions;
 	private final Clock clock;
 	private final Duration maxSampleAge;
+	private final ThresholdEvaluator thresholdAlerts;
 
 	public IngestService(JdbcTemplate jdbc, PlatformTransactionManager transactionManager,
-			PartitionMaintenanceService partitions, Clock clock, IngestProperties properties) {
+			PartitionMaintenanceService partitions, Clock clock, IngestProperties properties,
+			ThresholdEvaluator thresholdAlerts) {
 		this.jdbc = jdbc;
+		this.thresholdAlerts = thresholdAlerts;
 		this.transactions = new TransactionTemplate(transactionManager);
 		this.partitions = partitions;
 		this.clock = clock;
@@ -144,15 +149,16 @@ public class IngestService {
 		return this.transactions.execute(status -> {
 			int[] counts = insert(device, rows, receivedAt);
 
-			int accepted = 0;
 			int duplicates = 0;
-			for (int count : counts) {
-				switch (count) {
-					case 1 -> accepted++;
+			List<ThresholdEvaluator.Reading> stored = new ArrayList<>();
+			for (int i = 0; i < counts.length; i++) {
+				switch (counts[i]) {
+					case 1 -> stored.add(toEvaluated(rows.get(i)));
 					case 0 -> duplicates++;
-					default -> throw new IllegalStateException(unexpectedUpdateCount(count));
+					default -> throw new IllegalStateException(unexpectedUpdateCount(counts[i]));
 				}
 			}
+			int accepted = stored.size();
 
 			// README: "Update devices.last_seen_at only after a successful
 			// insert." A batch of nothing but duplicates is not a successful
@@ -161,11 +167,11 @@ public class IngestService {
 				this.jdbc.update(TOUCH_LAST_SEEN, utc(receivedAt), device.deviceId());
 			}
 
-			// Milestone 2: synchronous threshold-alert evaluation belongs here,
-			// inside the transaction, so an alert and the reading that triggered
-			// it commit together or not at all. The upsert needs a different
-			// ON CONFLICT target per alert type; see the alerts package and
-			// docs/decisions/0002-device-scoped-offline-alert-dedupe.md.
+			// Inside the transaction, so an alert and the reading that caused it
+			// commit together or not at all. Only the rows just stored are
+			// passed: a duplicate is not a new measurement and must not count
+			// as an evaluation. See ThresholdEvaluator.
+			this.thresholdAlerts.evaluate(device.binId(), stored, receivedAt);
 
 			return new IngestResponse(accepted, duplicates, rejectedCount);
 		});
@@ -204,6 +210,11 @@ public class IngestService {
 				return rows.size();
 			}
 		});
+	}
+
+	private static ThresholdEvaluator.Reading toEvaluated(Row row) {
+		return new ThresholdEvaluator.Reading(row.sensor().cable(), row.sensor().depth(), row.seq(),
+				row.recordedAt(), row.sensor().temperatureC(), row.sensor().moisturePct());
 	}
 
 	private static OffsetDateTime utc(Instant instant) {
