@@ -119,8 +119,10 @@ is wrong but still inside the window.
 
 **Today.** Temperature is bounded only by what its column can store (±999.9), so
 an unrepresentable value is a `400` but an implausible one is stored as a real
-reading. Common probes report fixed values on a fault: a disconnected DS18B20
-reads **−127 °C**, and one that has just powered on reads **85 °C**.
+reading. Probes report fixed values on a fault. A DS18B20 read before its first
+conversion returns its datasheet power-on value, **85 °C**, and the common
+Arduino DallasTemperature library returns **−127 °C** when it cannot reach the
+probe at all.
 
 **Why it matters.** The Milestone 2 alert engine will treat these as real. A
 sensor reading −127 and then 12 looks like a **139 °C rise** to `RATE_OF_RISE`,

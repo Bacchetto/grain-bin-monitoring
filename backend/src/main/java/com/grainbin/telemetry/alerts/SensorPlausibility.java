@@ -5,8 +5,8 @@ import java.math.BigDecimal;
 /**
  * Decides whether a temperature is a measurement or a probe fault.
  *
- * <p>Common probes report fixed values when something is wrong, and those
- * values are stored like any other reading. Fed to the engine, they raise
+ * <p>Probes report fixed values when something is wrong, and those values are
+ * stored like any other reading. Fed to the engine, they raise
  * false alarms caused by hardware rather than grain: a sensor reading
  * {@code -127} and then {@code 12} looks like a 139 degree rise, and {@code 85}
  * trips {@code HIGH_TEMPERATURE} at once. See {@code docs/enhancements.md}, E3.
@@ -24,23 +24,40 @@ import java.math.BigDecimal;
  * way to combustion. So the range only excludes what no bin can physically
  * report, and the known fault codes are matched exactly rather than by
  * narrowing the range around them.
+ *
+ * <h2>Where the fault values come from</h2>
+ *
+ * <p>Both assume DS18B20 probes, a common choice for digital grain cables. A
+ * different probe has different fault codes, and this class would need them.
+ *
+ * <ul>
+ *   <li><strong>85.0</strong> is from the DS18B20 datasheet: the temperature
+ *       register's power-on reset value ({@code 0x0550}). The probe returns it
+ *       when read before its first conversion completes -- typically after a
+ *       power glitch, or when firmware reads too early.</li>
+ *   <li><strong>-127.0</strong> is not a sensor value at all. It is
+ *       {@code DEVICE_DISCONNECTED_C}, what the widely used Arduino
+ *       DallasTemperature library returns when it cannot read the probe. It is
+ *       excluded by the range rather than matched, so other firmware's
+ *       "no reading" codes below the range are excluded too.</li>
+ * </ul>
  */
 public final class SensorPlausibility {
 
 	/**
-	 * Colder than any stored grain on the prairies has reached. Also excludes
-	 * {@code -127}, the value a DS18B20 reports when its probe is
-	 * disconnected.
+	 * Below the coldest air temperatures recorded on the Canadian prairies,
+	 * which have passed -50; grain in a bin lags the air and does not get
+	 * colder than it. Also well above {@code -127}, the library's
+	 * disconnected-probe value.
 	 */
-	static final BigDecimal MIN_PLAUSIBLE_TEMPERATURE_C = new BigDecimal("-50.0");
+	static final BigDecimal MIN_PLAUSIBLE_TEMPERATURE_C = new BigDecimal("-60.0");
 
 	/** Grain is ash well before this. */
 	static final BigDecimal MAX_PLAUSIBLE_TEMPERATURE_C = new BigDecimal("100.0");
 
 	/**
-	 * A DS18B20's power-on reset value: it reports exactly this before its
-	 * first conversion completes. Inside the plausible range, so it has to be
-	 * matched exactly. A bin that is genuinely at 85 degrees does not sit on
+	 * A DS18B20's power-on reset value, from its datasheet. Inside the
+	 * plausible range, so it has to be matched exactly. A bin that is genuinely at 85 degrees does not sit on
 	 * exactly 85.0 -- the readings either side of it still alert.
 	 */
 	static final BigDecimal POWER_ON_RESET_C = new BigDecimal("85.0");
@@ -64,5 +81,5 @@ public final class SensorPlausibility {
 	 * that they agree.
 	 */
 	public static final String PLAUSIBLE_TEMPERATURE_SQL =
-			"temperature_c BETWEEN -50.0 AND 100.0 AND temperature_c <> 85.0";
+			"temperature_c BETWEEN -60.0 AND 100.0 AND temperature_c <> 85.0";
 }

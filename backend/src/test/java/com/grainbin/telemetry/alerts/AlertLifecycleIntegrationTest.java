@@ -392,7 +392,7 @@ class AlertLifecycleIntegrationTest {
 	// -----------------------------------------------------------------------
 
 	@ParameterizedTest(name = "{0}")
-	@ValueSource(strings = {"-127.0", "-50.1", "-50.0", "-12.3", "0.0", "20.0", "65.0",
+	@ValueSource(strings = {"-127.0", "-60.1", "-60.0", "-52.3", "-12.3", "0.0", "20.0", "65.0",
 			"84.9", "85.0", "85.1", "100.0", "100.1"})
 	@DisplayName("the SQL plausibility predicate agrees with the Java one")
 	void sqlPredicateMatchesJava(String value) {

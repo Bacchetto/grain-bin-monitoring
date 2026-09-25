@@ -64,9 +64,10 @@ public record IngestRequest(@NotEmpty List<@NotNull @Valid Sample> samples) {
 	 * <p>The temperature bounds are what {@code NUMERIC(4,1)} can store, not what
 	 * is physically plausible. That is deliberate: a value the column cannot hold
 	 * would otherwise surface as a database error, but a value that is merely
-	 * implausible -- the {@code -127} a disconnected DS18B20 probe reports -- is a
-	 * data-quality question for the alert engine, not a reason to fail the batch.
- * See {@code docs/enhancements.md}, E3.
+	 * implausible -- the {@code -127} common firmware reports for an unreadable
+	 * probe -- is a data-quality question for the alert engine, not a reason to
+	 * fail the batch. See {@code alerts.SensorPlausibility} and
+	 * {@code docs/enhancements.md}, E3.
 	 *
 	 * <p>The upper bound on cable and depth keeps values inside {@code SMALLINT}
 	 * with room to spare; no real bin has 256 cables.
