@@ -6,15 +6,25 @@ import org.springframework.scheduling.annotation.EnableScheduling;
 /**
  * Turns on {@code @Scheduled} method execution.
  *
- * <p>Scheduled work in this service is deliberately idempotent and safe to run
- * on every instance at once. There is no leader election and no distributed
- * lock: with more than one ECS task, every task runs every job. That is
- * acceptable because each job either converges on the same state
- * (partition creation) or is guarded by a unique constraint in the database
- * (alert de-duplication, Milestone 2).
+ * <p>With more than one ECS task, every task runs every job. How each job
+ * copes with that is decided per job, not assumed:
  *
- * <p>If a job is ever added that is <em>not</em> safe to run concurrently,
- * that assumption has to be revisited rather than quietly relied upon.
+ * <ul>
+ *   <li><strong>Partition maintenance</strong> converges: creating a
+ *       partition that exists is a no-op, so any number of instances can run
+ *       it at once.</li>
+ *   <li><strong>The alert jobs</strong> do not. Unique indexes stop duplicate
+ *       alerts, but two instances would both record a clear, and an alert
+ *       would auto-resolve after fewer real evaluations than intended. They
+ *       run under a PostgreSQL advisory lock, so one instance at a time does
+ *       the work: {@code alerts.ScheduledJobLock}.</li>
+ * </ul>
+ *
+ * <p>A new job has to make the same choice explicitly.
+ *
+ * <p>All jobs share Spring's default single scheduler thread. That is enough:
+ * each run is short, and the rate-of-rise run, the longest, reads two days of
+ * data per bin.
  */
 @Configuration
 @EnableScheduling

@@ -20,6 +20,14 @@
  *       {@code HIGH_TEMPERATURE} and {@code HIGH_MOISTURE}, called by ingest
  *       inside its transaction. Its javadoc defines what counts as one
  *       evaluation.</li>
+ *   <li>{@link com.grainbin.telemetry.alerts.RateOfRiseEvaluator} and
+ *       {@link com.grainbin.telemetry.alerts.DeviceOfflineEvaluator} -- the
+ *       scheduled alerts, each run judging every bin or device against one
+ *       {@code now}.</li>
+ *   <li>{@link com.grainbin.telemetry.alerts.AlertSchedule} -- runs those two;
+ *       switched off in tests.</li>
+ *   <li>{@link com.grainbin.telemetry.alerts.ScheduledJobLock} -- one instance
+ *       at a time per job, by PostgreSQL advisory lock.</li>
  * </ul>
  *
  * <h2>De-duplication: two rules, not one</h2>

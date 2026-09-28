@@ -160,8 +160,8 @@ Health and metrics are served at `/actuator/health` and `/actuator/prometheus`.
 |---|---|---|
 | `HIGH_TEMPERATURE` | Any sensor above `max_temperature_c` (default 20.0) | On ingest |
 | `HIGH_MOISTURE` | Any sensor above `max_moisture_pct` (default 14.5) | On ingest |
-| `RATE_OF_RISE` | A sensor's temperature has risen at least `rise_threshold_c` (default 2.0) over the trailing `rise_window_hours` (default 72) | Scheduled, every 5 min |
-| `DEVICE_OFFLINE` | `now - last_seen_at > 3 × expected_interval_seconds` | Scheduled, every 1 min |
+| `RATE_OF_RISE` | A sensor's temperature has risen at least `rise_threshold_c` (default 2.0) over the trailing `rise_window_hours` (default 72). Measured on daily averages -- the last 24 h against the 24 h that ended `rise_window_hours` ago -- so the normal day/night swing near the top of a bin is not mistaken for a rise. A sensor needs half a day's expected readings in each window to be judged. | Scheduled, every 5 min |
+| `DEVICE_OFFLINE` | `now - last_seen_at > 3 × expected_interval_seconds`. A device that has never reported is measured from its registration. | Scheduled, every 1 min |
 
 The default thresholds are placeholders for demonstration, not agronomic guidance.
 
@@ -179,6 +179,7 @@ Lifecycle and rules:
   for the same sensor is not evaluated at all.
 - `DEVICE_OFFLINE` must be based on the last **successfully stored** reading, not on connection attempts. A device that connects but sends only rejected or duplicate data is still offline from a data standpoint.
 - Probe fault values are stored and shown, but never evaluated. Firmware commonly reports −127 °C for an unreadable DS18B20, which would make a recovery to 12 °C look like a 139 °C rise, and the probe itself reads 85 °C before its first conversion after power-up. The engine skips exactly 85.0 °C and anything outside −60..100 °C; the range is wide so that genuinely heating grain is never mistaken for a fault. A fuller treatment is enhancement [E3](docs/enhancements.md#e3).
+- With more than one API instance, each scheduled job still runs on only one of them at a time (a PostgreSQL advisory lock), so a clear is never counted twice.
 - Every alert state change is logged as structured JSON and counted with a Micrometer counter (`alerts_transitions_total{type,to_state}`).
 
 ---
@@ -284,7 +285,7 @@ Still to come: Prometheus and Grafana in Compose, the front end
 `docker compose up` running everything, including the API container, arrives in
 Milestone 3 with the Dockerfile.
 
-Configuration comes from environment variables (see `.env.example`): `DB_URL`, `DB_USER`, `DB_PASSWORD`, `ADMIN_TOKEN`, `CORS_ALLOWED_ORIGINS`, and optionally `APP_INGEST_MAX_SAMPLE_AGE`. Never commit `.env`. `CORS_ALLOWED_ORIGINS` is not read by the API yet; it is wired up in Milestone 2 with the front end that needs it.
+Configuration comes from environment variables (see `.env.example`): `DB_URL`, `DB_USER`, `DB_PASSWORD`, `ADMIN_TOKEN`, `CORS_ALLOWED_ORIGINS`, and optionally `APP_INGEST_MAX_SAMPLE_AGE`, `APP_ALERTS_OFFLINE_CHECK_INTERVAL` and `APP_ALERTS_RATE_OF_RISE_CHECK_INTERVAL` (defaults `1m` and `5m`; shorten them for a demo). Never commit `.env`. `CORS_ALLOWED_ORIGINS` is not read by the API yet; it is wired up in Milestone 2 with the front end that needs it.
 
 Spring Boot does not read `.env` files by itself. `./mvnw spring-boot:run` switches on a `local` profile that imports the root `.env`, so the API and Compose always agree -- change the database password there and both sides see it. A variable exported in the shell still wins. The tests never activate that profile, so a developer's `.env` cannot change what they see.
 

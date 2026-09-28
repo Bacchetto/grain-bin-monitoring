@@ -196,6 +196,13 @@
 				<configuration>
 					<environmentVariables>
 						<ADMIN_TOKEN>test-admin-token-do-not-use-anywhere-real</ADMIN_TOKEN>
+						<!--
+							The scheduled alert jobs stay off in tests. Tests call the
+							evaluators with chosen instants; a background run against
+							the real clock would race them for the same data and the
+							same job lock. See alerts.AlertSchedule.
+						-->
+						<APP_ALERTS_SCHEDULING_ENABLED>false</APP_ALERTS_SCHEDULING_ENABLED>
 					</environmentVariables>
 				</configuration>
 			</plugin>
