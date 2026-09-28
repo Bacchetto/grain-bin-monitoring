@@ -95,12 +95,14 @@ public class IngestService {
 	private final Clock clock;
 	private final Duration maxSampleAge;
 	private final ThresholdEvaluator thresholdAlerts;
+	private final IngestMetrics metrics;
 
 	public IngestService(JdbcTemplate jdbc, PlatformTransactionManager transactionManager,
 			PartitionMaintenanceService partitions, Clock clock, IngestProperties properties,
-			ThresholdEvaluator thresholdAlerts) {
+			ThresholdEvaluator thresholdAlerts, IngestMetrics metrics) {
 		this.jdbc = jdbc;
 		this.thresholdAlerts = thresholdAlerts;
+		this.metrics = metrics;
 		this.transactions = new TransactionTemplate(transactionManager);
 		this.partitions = partitions;
 		this.clock = clock;
@@ -116,6 +118,15 @@ public class IngestService {
 	 * @param samples already validated, and at most {@link #MAX_SAMPLES_PER_BATCH}
 	 */
 	public IngestResponse ingest(AuthenticatedDevice device, List<IngestRequest.Sample> samples) {
+		IngestResponse response = store(device, samples);
+		// Counted only here, once store() has returned -- by which point its
+		// transaction has committed. A batch that fails and rolls back throws
+		// past this line and is never counted as accepted.
+		this.metrics.record(response);
+		return response;
+	}
+
+	private IngestResponse store(AuthenticatedDevice device, List<IngestRequest.Sample> samples) {
 		Instant receivedAt = this.clock.instant();
 		Instant latestAcceptable = receivedAt.plus(MAX_FUTURE_SKEW);
 		// The floor. Beyond stopping junk data, it bounds which partitions a
