@@ -5,6 +5,9 @@ Seed some bins, then stream readings to them:
     python simulator/sim.py --seed-bins 3
     python simulator/sim.py --scenario normal --bins 3 --interval 10
     python simulator/sim.py --scenario flaky --cycles 20
+    python simulator/sim.py --scenario hotspot --bins 1     # replays 5 days, then live
+    python simulator/sim.py --scenario wet --bins 1
+    python simulator/sim.py --scenario offline --bins 1     # 5 samples, then silence
 
 Point it at a deployed stack with --url. Device keys are kept per URL in
 simulator/.devices.json, which is git-ignored: it holds plaintext keys.
@@ -19,11 +22,11 @@ import random
 import sys
 import time
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from api import Api, ApiError
-from scenarios import FlakyLink, ReliableLink, Sample, chunks, normal_sensors, seq_for
+from scenarios import MAX_SAMPLES_PER_BATCH, SCENARIOS, FlakyLink, ReliableLink, Sample, chunks, seq_for
 
 HERE = Path(__file__).resolve().parent
 DEVICES_FILE = HERE / ".devices.json"
@@ -37,16 +40,25 @@ SIM_SITE = "Sim Farm"
 MIN_EXPECTED_INTERVAL = 30
 SIM_GRAIN = "canola"
 
-# Milestone 1 scenarios. hotspot, wet and offline -- and --time-scale, which
-# they need -- arrive in Milestone 2.
-#
-# A note for the offline scenario: --time-scale cannot speed it up.
+# --time-scale replays the past; it cannot run ahead of the present. The
+# backend rejects samples more than five minutes in the future, and judges
+# rate of rise against its own clock, so a shape that takes days to develop
+# has to be placed in the past and replayed quickly up to now. At the default,
+# an hour of history takes a second: hotspot's five days replay in two minutes.
+DEFAULT_TIME_SCALE = 3600
+
+# The backend rejects samples older than 30 days (APP_INGEST_MAX_SAMPLE_AGE).
+# A day's margin, so a long replay's first samples are not rejected by the time
+# they are sent.
+MAX_HISTORY = timedelta(days=29)
+
+# A note for the offline scenario: --time-scale cannot speed it up, which is why
+# it has no history to replay.
 # DEVICE_OFFLINE compares the server's clock with devices.last_seen_at, which
 # is also the server's clock (ADR 0005), so nothing the simulator does to
 # recordedAt affects it. The alert fires after three real registered intervals,
 # at least 90 seconds -- which is also why seeded devices use the 30-second
 # minimum rather than something longer.
-SCENARIOS = ("normal", "flaky")
 
 
 # ---------------------------------------------------------------------------
@@ -82,6 +94,12 @@ class SimDevice:
     bin_name: str
     device_id: int
     api_key: str
+    # What the device was registered as, in seconds. A replay samples at this
+    # spacing: the backend's rate-of-rise rule wants at least half the readings
+    # this interval implies, so replaying more sparsely would leave every
+    # window too thin to judge. Files written before this field existed were
+    # all seeded at the minimum, hence the default.
+    expected_interval: int = MIN_EXPECTED_INTERVAL
 
 
 def load_devices(url: str, path: Path = DEVICES_FILE) -> list[SimDevice]:
@@ -138,8 +156,9 @@ def seed_bins(api: Api, url: str, count: int, interval: int,
                 out(f"  {name}: already seeded (bin {bin_id})")
                 continue
 
-        device = api.register_device(bin_id, max(interval, MIN_EXPECTED_INTERVAL))
-        seeded[name] = SimDevice(bin_id, name, device["id"], device["apiKey"])
+        registered_interval = max(interval, MIN_EXPECTED_INTERVAL)
+        device = api.register_device(bin_id, registered_interval)
+        seeded[name] = SimDevice(bin_id, name, device["id"], device["apiKey"], registered_interval)
         out(f"  {name}: bin {bin_id}, device {device['id']}")
 
     devices = sorted(seeded.values(), key=lambda d: d.bin_id)
@@ -164,14 +183,25 @@ class Totals:
 
 
 def run(api: Api, devices: list[SimDevice], scenario: str, interval: int,
-        cycles: int | None, seed: int, out=print, sleep=time.sleep, now=lambda: datetime.now(UTC)) -> Totals:
-    """Take a sample per device every ``interval`` seconds and send it.
+        cycles: int | None, seed: int, out=print, sleep=time.sleep, now=lambda: datetime.now(UTC),
+        history: timedelta | None = None, time_scale: float = DEFAULT_TIME_SCALE,
+        monotonic=time.monotonic) -> Totals:
+    """Replay the scenario's history, if it has any, then take a sample per
+    device every ``interval`` seconds and send it.
 
-    ``cycles`` of None means run until interrupted. ``sleep`` and ``now`` are
-    injectable so tests need not wait in real time.
+    ``cycles`` of None means the scenario's own limit -- offline stops after a
+    few samples -- or else run until interrupted. ``history`` of None means the
+    scenario's default. ``sleep``, ``now`` and ``monotonic`` are injectable so
+    tests need not wait in real time.
     """
+    definition = SCENARIOS[scenario]
+    history = definition.history if history is None else history
+    if cycles is None:
+        cycles = definition.stops_after
+    origin = now().replace(microsecond=0) - history
+
     links = {
-        device.device_id: FlakyLink(random.Random(seed + i)) if scenario == "flaky" else ReliableLink()
+        device.device_id: FlakyLink(random.Random(seed + i)) if definition.flaky else ReliableLink()
         for i, device in enumerate(devices)
     }
     rngs = {device.device_id: random.Random(seed * 1000 + i) for i, device in enumerate(devices)}
@@ -185,13 +215,16 @@ def run(api: Api, devices: list[SimDevice], scenario: str, interval: int,
                 f"accepted {response['accepted']}, duplicates {response['duplicates']}, "
                 f"rejected {response['rejected']}")
 
+    if history > timedelta(0):
+        replay(devices, definition, origin, time_scale, rngs, send, out, sleep, now, monotonic)
+
     cycle = 0
     try:
         while cycles is None or cycle < cycles:
             started = time.monotonic()
             at = now().replace(microsecond=0)
             for i, device in enumerate(devices):
-                sample = Sample(seq_for(at), at, normal_sensors(i, at, rngs[device.device_id]))
+                sample = Sample(seq_for(at), at, definition.sensors(i, at, rngs[device.device_id], origin))
                 batch = links[device.device_id].next_batch(sample)
                 if batch:
                     send(device, batch)
@@ -209,7 +242,53 @@ def run(api: Api, devices: list[SimDevice], scenario: str, interval: int,
             if leftover:
                 send(device, leftover)
 
+    if definition.stops_after is not None:
+        out(f"Devices are now silent. DEVICE_OFFLINE should open about three registered intervals after "
+            f"their last sample -- {3 * max(d.expected_interval for d in devices)}s here -- plus up to a "
+            f"minute for the check to run.")
     return totals
+
+
+def replay(devices: list[SimDevice], definition, origin: datetime, time_scale: float, rngs: dict,
+           send, out, sleep, now, monotonic) -> None:
+    """Send the scenario from ``origin`` up to the present, ``time_scale``
+    times faster than real time.
+
+    Samples are spaced at the devices' registered interval (the shortest, if
+    they differ), and go out a batch-sized window at a time. Before each window
+    the replay waits until real time has caught up with where the window starts
+    in scaled time -- so at 3600x, each simulated hour takes a second.
+
+    The window never extends past ``now()``, read afresh each time. The present
+    keeps moving while the replay runs, but more slowly than the replay does, so
+    the replay catches up and stops, and no sample is ever in the future.
+    """
+    spacing = timedelta(seconds=min(device.expected_interval for device in devices))
+    window = spacing * MAX_SAMPLES_PER_BATCH
+    out(f"Replaying {(now() - origin) / timedelta(hours=1):.0f} h of '{definition.name}' at {time_scale:g}x, "
+        f"one sample every {spacing.total_seconds():g}s...")
+
+    started = monotonic()
+    t = origin
+    while True:
+        end = min(t + window, now())
+        times = []
+        while t < end:
+            times.append(t)
+            t += spacing
+        if not times:
+            break
+
+        due = (times[0] - origin).total_seconds() / time_scale
+        wait = due - (monotonic() - started)
+        if wait > 0:
+            sleep(wait)
+
+        for i, device in enumerate(devices):
+            rng = rngs[device.device_id]
+            send(device, [Sample(seq_for(at), at, definition.sensors(i, at, rng, origin)) for at in times])
+
+    out("Replay caught up with the present; continuing live.")
 
 
 # ---------------------------------------------------------------------------
@@ -228,8 +307,10 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     mode = parser.add_mutually_exclusive_group(required=True)
     mode.add_argument("--seed-bins", type=positive, metavar="N",
                       help="create N bins with one device each, and save their keys")
-    mode.add_argument("--scenario", choices=SCENARIOS,
-                      help="stream readings: normal, or flaky (duplicates, reordering, skipped intervals)")
+    mode.add_argument("--scenario", choices=sorted(SCENARIOS),
+                      help="stream readings: normal; flaky (duplicates, reordering, skipped intervals); "
+                           "hotspot (one sensor heating); wet (moisture rising at the bottom); "
+                           "offline (stops reporting)")
     parser.add_argument("--url", default="http://localhost:8080", help="API base URL (default: %(default)s)")
     parser.add_argument("--admin-token", help="admin token for --seed-bins (default: ADMIN_TOKEN from .env)")
     parser.add_argument("--bins", type=positive, help="stream to the first N seeded bins (default: all)")
@@ -237,7 +318,40 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
                         help="seconds between samples, at least 1 (default: %(default)s)")
     parser.add_argument("--cycles", type=positive, help="stop after N samples per device (default: run until Ctrl-C)")
     parser.add_argument("--seed", type=int, default=42, help="random seed, for repeatable runs (default: %(default)s)")
-    return parser.parse_args(argv)
+    parser.add_argument("--history", type=hours, metavar="HOURS",
+                        help="replay this many hours of the past before going live (default: the scenario's own -- "
+                             "120 for hotspot, 24 for wet, 0 otherwise; at most "
+                             f"{int(MAX_HISTORY / timedelta(hours=1))})")
+    parser.add_argument("--time-scale", type=faster_than_real_time, default=DEFAULT_TIME_SCALE, metavar="N",
+                        help="replay history N times faster than real time; it always ends at the present "
+                             "(default: %(default)s, an hour a second)")
+    parser.add_argument("--offline-after", type=positive, metavar="N",
+                        help=f"offline scenario: stop after N samples per device (default: "
+                             f"{SCENARIOS['offline'].stops_after})")
+    args = parser.parse_args(argv)
+    if args.offline_after is not None:
+        if args.scenario != "offline":
+            parser.error("--offline-after only applies to --scenario offline")
+        args.cycles = args.offline_after
+    return args
+
+
+def hours(value: str) -> timedelta:
+    span = timedelta(hours=float(value))
+    if span < timedelta(0) or span > MAX_HISTORY:
+        raise argparse.ArgumentTypeError(
+            f"must be between 0 and {int(MAX_HISTORY / timedelta(hours=1))}; the backend rejects samples "
+            f"older than 30 days")
+    return span
+
+
+def faster_than_real_time(value: str) -> float:
+    # At 1x or slower the replay would never catch up with the present, which
+    # keeps moving too.
+    scale = float(value)
+    if scale <= 1:
+        raise argparse.ArgumentTypeError("must be greater than 1: a replay has to catch up with the present")
+    return scale
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -270,7 +384,8 @@ def main(argv: list[str] | None = None) -> int:
             devices = devices[:args.bins]
 
         print(f"Streaming '{args.scenario}' to {len(devices)} bin(s) every {args.interval}s. Ctrl-C to stop.")
-        totals = run(api, devices, args.scenario, args.interval, args.cycles, args.seed)
+        totals = run(api, devices, args.scenario, args.interval, args.cycles, args.seed,
+                     history=args.history, time_scale=args.time_scale)
         print(f"Total: accepted {totals.accepted}, duplicates {totals.duplicates}, rejected {totals.rejected}")
         return 0
 

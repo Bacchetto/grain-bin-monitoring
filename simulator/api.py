@@ -85,6 +85,11 @@ class Api:
         return self._admin("POST", f"/api/v1/bins/{bin_id}/devices",
                            {"expectedIntervalSeconds": expected_interval_seconds})
 
+    def list_alerts(self, bin_id: int, status: str = "open,acknowledged") -> list[dict]:
+        """A bin's alerts, newest first. Used by the end-to-end tests to see
+        whether a scenario raised what it should."""
+        return self._admin("GET", f"/api/v1/alerts?binId={bin_id}&status={status}")
+
     def _admin(self, method: str, path: str, body: dict | None = None) -> Any:
         if not self.admin_token:
             raise ApiError(0, "No admin token. Set ADMIN_TOKEN in .env, or pass --admin-token.")

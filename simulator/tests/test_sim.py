@@ -212,3 +212,169 @@ def test_flaky_delivers_every_sample_by_the_end_of_a_finite_run():
         delivered = {s.seq for k, samples in api.posts if k == key for s in samples}
         # 50 cycles, one sample each; skipped ones are flushed at the end.
         assert len(delivered) == 50
+
+
+# -- replaying history (--time-scale) ----------------------------------------
+
+class FakeTime:
+    """Real time that only passes when the code sleeps. ``now`` is the wall
+    clock, ``monotonic`` the stopwatch; both advance together."""
+
+    def __init__(self, start):
+        self.start = start
+        self.elapsed = 0.0
+        self.slept = []
+
+    def sleep(self, seconds):
+        self.slept.append(seconds)
+        self.elapsed += seconds
+
+    def now(self):
+        return self.start + timedelta(seconds=self.elapsed)
+
+    def monotonic(self):
+        return self.elapsed
+
+
+class ClockCheckingApi(RecordingApi):
+    """Records the wall-clock time each batch was sent at, to check that no
+    sample is ever from the future."""
+
+    def __init__(self, clock):
+        super().__init__()
+        self.clock = clock
+        self.sent_at = []
+
+    def post_readings(self, key, samples):
+        self.sent_at.append(self.clock.now())
+        return super().post_readings(key, samples)
+
+
+ONE_DEVICE = [SimDevice(1, "Sim Bin 1", 11, "k1", expected_interval=30)]
+
+
+def replayed(api):
+    return [s for _, samples in api.posts for s in samples]
+
+
+def test_a_replay_covers_the_history_at_the_registered_interval_then_goes_live():
+    clock = FakeTime(START)
+    api = ClockCheckingApi(clock)
+
+    run(api, ONE_DEVICE, "wet", interval=10, cycles=1, seed=1, out=quiet,
+        sleep=clock.sleep, now=clock.now, monotonic=clock.monotonic)
+
+    times = [s.recorded_at for s in replayed(api)]
+    history, live = times[:-1], times[-1]
+    assert history[0] == START - timedelta(hours=24)
+    # Spaced at the registered 30 s, which is what the backend's coverage rule
+    # measures against.
+    assert {b - a for a, b in zip(history, history[1:])} == {timedelta(seconds=30)}
+    assert len(history) >= 24 * 3600 // 30
+    # Then one live sample, after the replay.
+    assert live > history[-1]
+
+
+def test_a_replay_never_sends_a_sample_from_the_future():
+    clock = FakeTime(START)
+    api = ClockCheckingApi(clock)
+
+    run(api, ONE_DEVICE, "hotspot", interval=10, cycles=1, seed=1, out=quiet,
+        sleep=clock.sleep, now=clock.now, monotonic=clock.monotonic)
+
+    for sent_at, (_, samples) in zip(api.sent_at, api.posts):
+        assert all(s.recorded_at <= sent_at for s in samples)
+
+
+def test_a_replay_takes_history_divided_by_time_scale_in_real_time():
+    clock = FakeTime(START)
+
+    run(RecordingApi(), ONE_DEVICE, "wet", interval=10, cycles=1, seed=1, out=quiet,
+        sleep=clock.sleep, now=clock.now, monotonic=clock.monotonic, time_scale=3600)
+
+    # 24 h at 3600x is 24 s. Slightly less in practice: each window waits
+    # until its *first* sample is due, and the last window starts before the
+    # end.
+    assert 20 <= clock.elapsed <= 24
+
+
+def test_a_replay_sends_no_batch_over_the_backends_limit():
+    clock = FakeTime(START)
+    api = RecordingApi()
+
+    run(api, ONE_DEVICE, "hotspot", interval=10, cycles=1, seed=1, out=quiet,
+        sleep=clock.sleep, now=clock.now, monotonic=clock.monotonic)
+
+    assert max(len(samples) for _, samples in api.posts) <= 500
+    # Five days at 30 s: 14,400 samples, in about 29 batches.
+    assert len(replayed(api)) >= 14_400
+
+
+def test_scenarios_without_history_do_not_replay():
+    clock = FakeTime(START)
+    api = RecordingApi()
+
+    run(api, ONE_DEVICE, "normal", interval=10, cycles=2, seed=1, out=quiet,
+        sleep=clock.sleep, now=clock.now, monotonic=clock.monotonic)
+
+    assert len(replayed(api)) == 2
+
+
+def test_history_can_be_given_to_any_scenario():
+    # A normal bin with three days behind it, so the dashboard's charts have
+    # something to show.
+    clock = FakeTime(START)
+    api = RecordingApi()
+
+    run(api, ONE_DEVICE, "normal", interval=10, cycles=1, seed=1, out=quiet,
+        sleep=clock.sleep, now=clock.now, monotonic=clock.monotonic, history=timedelta(hours=72))
+
+    assert replayed(api)[0].recorded_at == START - timedelta(hours=72)
+
+
+# -- offline ----------------------------------------------------------------
+
+def test_offline_stops_after_its_default_number_of_samples_and_says_so():
+    api = RecordingApi()
+    lines = []
+
+    run(api, DEVICES, "offline", 10, cycles=None, seed=1, out=lines.append,
+        sleep=lambda _: None, now=fixed_clock(START))
+
+    per_device = {key: sum(len(s) for k, s in api.posts if k == key) for key in ("k1", "k2")}
+    assert per_device == {"k1": 5, "k2": 5}
+    assert "DEVICE_OFFLINE" in lines[-1]
+
+
+def test_offline_after_overrides_the_default():
+    args = sim.parse_args(["--scenario", "offline", "--offline-after", "2"])
+    assert args.cycles == 2
+
+
+# -- the CLI ----------------------------------------------------------------
+
+@pytest.mark.parametrize("argv", [
+    ["--scenario", "hotspot", "--time-scale", "1"],        # would never catch up
+    ["--scenario", "hotspot", "--time-scale", "0.5"],
+    ["--scenario", "hotspot", "--history", "720"],         # older than the backend accepts
+    ["--scenario", "hotspot", "--history", "-1"],
+    ["--scenario", "normal", "--offline-after", "3"],      # only for offline
+])
+def test_the_cli_refuses_settings_that_cannot_work(argv, capsys):
+    with pytest.raises(SystemExit):
+        sim.parse_args(argv)
+
+
+def test_seeding_records_the_registered_interval(tmp_path):
+    devices = seed_bins(FakeApi(), "u", 1, 120, tmp_path / "d.json", out=quiet)
+
+    assert devices[0].expected_interval == 120
+    assert load_devices("u", tmp_path / "d.json")[0].expected_interval == 120
+
+
+def test_a_device_file_from_before_intervals_were_recorded_still_loads(tmp_path):
+    path = tmp_path / ".devices.json"
+    path.write_text('{"u": [{"bin_id": 1, "bin_name": "Sim Bin 1", "device_id": 5, "api_key": "k"}]}',
+                    encoding="utf-8")
+
+    assert load_devices("u", path)[0].expected_interval == sim.MIN_EXPECTED_INTERVAL

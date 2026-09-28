@@ -202,12 +202,19 @@ python simulator/sim.py --url http://localhost:8080 --scenario normal --bins 5 -
 
 Use `--time-scale` to compress simulated time so that multi-day scenarios run in minutes. The simulator also has a `--seed-bins` mode that creates bins and devices through the admin API and writes the device keys to a local, git-ignored file.
 
-**Implemented so far:** `--seed-bins`, `normal` and `flaky`. `hotspot`, `wet`, `offline` and `--time-scale` arrive in Milestone 2.
+**How `--time-scale` works: it replays the past.** The backend rejects samples more than five minutes in the future and judges rate of rise against its own clock, so a shape that takes days to develop has to be placed in the past. A scenario starts `--history` hours ago -- by default 120 for `hotspot` (three steady days, then two of warming), 24 for `wet`, 0 otherwise -- and is replayed `--time-scale` times faster than real time (default 3600, an hour a second) until it catches up with the present, then carries on live. Replayed samples are spaced at the device's registered interval, because the rate-of-rise rule needs half a day's expected readings in each window. `--history` also works with `normal`, to give the dashboard's charts some past to show. It is capped at 29 days, inside the backend's 30-day sample-age limit.
+
+| Scenario | What it raises, and when |
+|---|---|
+| `hotspot` | `RATE_OF_RISE` on cable 1, depth 3, within one check of the replay finishing, while that sensor is still near 13 °C. `HIGH_TEMPERATURE` would follow days later if left running. |
+| `wet` | `HIGH_MOISTURE` on the bottom sensor of every cable, during the replay: moisture passes 14.5 % twelve hours in. |
+| `offline` | Sends 5 samples (`--offline-after N`), then stops. `DEVICE_OFFLINE` opens about 90 seconds later, plus up to a minute for the check. |
 
 `--time-scale` cannot speed up `offline`. `DEVICE_OFFLINE` compares the server's clock with `last_seen_at`, which is also set from the server's clock ([ADR 0005](docs/decisions/0005-last-seen-uses-server-clock.md)), so nothing the simulator does to `recordedAt` moves it. The alert fires after three real registered intervals: at least 90 seconds.
 
 - `--seed-bins N` is safe to repeat: bins it already holds keys for are left alone. Keys are stored per `--url`, so seeding a deployed stack does not overwrite the local keys. Devices are registered as reporting every 30 seconds at least, the backend's minimum; streaming more often is fine.
 - `--cycles N` stops after N samples per device; without it the simulator runs until Ctrl-C. `--seed` makes a run repeatable.
+- **Checking that each scenario raises its alert:** `pytest` checks the generated shapes against the backend's rules, and the backend's own tests check the rules against the same shapes. `pytest -m e2e` proves the two agree, against a running stack with the alert checks shortened -- see `simulator/tests/test_e2e.py` for the two commands. It takes about two minutes, most of it waiting for `DEVICE_OFFLINE`.
 - `seq` is derived from each sample's timestamp in whole seconds, so it increases across restarts with nothing stored on disk, and a resent sample carries its original `seq` -- which is how the backend recognises it as a duplicate.
 
 ---
@@ -277,11 +284,16 @@ cd backend && ./mvnw spring-boot:run                  # API on :8080, configured
 python simulator/sim.py --seed-bins 3                 # bins + devices; keys saved to simulator/.devices.json
 python simulator/sim.py --scenario normal --interval 10
 python simulator/sim.py --scenario flaky --cycles 20  # duplicates, reordering, skipped intervals
+python simulator/sim.py --scenario hotspot --bins 1   # replays 5 days (~2 min), then live: RATE_OF_RISE
+python simulator/sim.py --scenario wet --bins 1       # replays 1 day: HIGH_MOISTURE
+python simulator/sim.py --scenario offline --bins 1   # 5 samples, then silence: DEVICE_OFFLINE
 ```
 
-Still to come: Prometheus and Grafana in Compose, the front end
-(`cd frontend && npm install && npm run dev`, UI on :5173), and the `hotspot`,
-`wet` and `offline` scenarios with `--time-scale` arrive in Milestone 2.
+To see scheduled alerts sooner, start the API with shorter checks:
+`APP_ALERTS_RATE_OF_RISE_CHECK_INTERVAL=5s APP_ALERTS_OFFLINE_CHECK_INTERVAL=5s ./mvnw spring-boot:run`.
+
+Still to come: Prometheus and Grafana in Compose, and the front end
+(`cd frontend && npm install && npm run dev`, UI on :5173), later in Milestone 2.
 `docker compose up` running everything, including the API container, arrives in
 Milestone 3 with the Dockerfile.
 
@@ -371,8 +383,8 @@ Work in order. Each milestone ends with every check above passing and a short su
 - [x] Simulator with `--seed-bins`, `normal`, and `flaky` scenarios
 
 ### Milestone 2: Alerts and dashboard (week 2)
-- [ ] Alert engine with all four types, dedupe, auto-resolve, and metrics
-- [ ] Simulator `hotspot`, `wet`, and `offline` scenarios, and a test that each one produces the expected alert
+- [x] Alert engine with all four types, dedupe, auto-resolve, and metrics
+- [x] Simulator `hotspot`, `wet`, and `offline` scenarios, and a test that each one produces the expected alert
 - [ ] React + TypeScript dashboard: bin list, bin detail (grid and charts), alerts view
 - [ ] Prometheus and Grafana in Compose, with a provisioned dashboard for ingest rate, latency, and alert transitions
 

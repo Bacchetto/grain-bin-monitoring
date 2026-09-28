@@ -7,3 +7,10 @@
 # run as a script.
 pythonpath = ["."]
 testpaths = ["tests"]
+# The end-to-end tests need a running stack and are skipped without one;
+# `pytest -m e2e` runs only them. See tests/test_e2e.py.
+markers = [
+    "e2e: needs a live API at SIM_E2E_URL (skipped otherwise)",
+]
+# Unknown markers are errors, so a typo cannot silently select nothing.
+addopts = ["--strict-markers"]

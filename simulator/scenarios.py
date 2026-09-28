@@ -2,15 +2,20 @@
 
 Everything here is pure: no network, and no clock reads -- the caller passes
 the time in. That keeps the tests deterministic and lets the same code drive a
-real-time run or, in Milestone 2, a compressed-time one.
+real-time run or a replay of the past at ``--time-scale``.
+
+Each scenario's sensor function takes ``origin``, the moment the scenario
+started, so a shape like "steady for three days, then warming" is defined in
+simulated time and comes out the same whether it is replayed or run live.
 """
 
 from __future__ import annotations
 
 import math
 import random
-from dataclasses import dataclass, field
-from datetime import datetime
+from collections.abc import Callable
+from dataclasses import dataclass, field, replace
+from datetime import datetime, timedelta
 
 # One device per bin, 4 cables of 6 sensors each: 24 readings per sample.
 # Depth 0 is the top of the cable, nearest the headspace.
@@ -81,6 +86,106 @@ def normal_sensors(bin_index: int, at: datetime, rng: random.Random) -> tuple[Se
             # more precision than is kept would only be rounded away.
             sensors.append(Sensor(cable, depth, round(temperature, 1), round(moisture, 1)))
     return tuple(sensors)
+
+
+# ---------------------------------------------------------------------------
+# hotspot: one sensor slowly heating
+# ---------------------------------------------------------------------------
+
+# Mid-bin, where heating from insects or moisture usually starts and where the
+# daily swing of the headspace does not reach.
+HOT_CABLE, HOT_DEPTH = 1, 3
+
+# Steady for three days, then warming 1.5 degrees a day. The three days give
+# the backend's rate-of-rise rule a full baseline: it compares the last 24 h
+# with the 24 h that ended 72 h ago. After two days of warming, the daily
+# averages are about 2.25 degrees apart -- over the 2.0 threshold -- while the
+# sensor itself is still near 13 degrees, far below HIGH_TEMPERATURE's 20.
+# That ordering is the point of the scenario (README): RATE_OF_RISE is the
+# early warning. The backend's RateOfRiseEvaluatorIntegrationTest uses the
+# same shape.
+HOTSPOT_STEADY = timedelta(hours=72)
+HOTSPOT_RISE_PER_DAY = 1.5
+
+
+def hotspot_rise(at: datetime, origin: datetime) -> float:
+    """Degrees the hot sensor has gained over its normal value by ``at``."""
+    warming = at - origin - HOTSPOT_STEADY
+    return max(0.0, warming / timedelta(days=1)) * HOTSPOT_RISE_PER_DAY
+
+
+def hotspot_sensors(bin_index: int, at: datetime, rng: random.Random, origin: datetime) -> tuple[Sensor, ...]:
+    """The normal bin, except that one sensor mid-bin is heating."""
+    rise = hotspot_rise(at, origin)
+    return tuple(
+        replace(s, temperature_c=round(s.temperature_c + rise, 1)) if (s.cable, s.depth) == (HOT_CABLE, HOT_DEPTH) else s
+        for s in normal_sensors(bin_index, at, rng)
+    )
+
+
+# ---------------------------------------------------------------------------
+# wet: moisture rising at the bottom
+# ---------------------------------------------------------------------------
+
+# Water collects at the bottom of a bin -- a leak, or condensation on the
+# floor. Only the deepest sensor on each cable is affected.
+WET_DEPTH = DEPTHS - 1
+
+# The bottom normally reads about 14.0 %; at 1 % a day it passes the default
+# 14.5 % threshold twelve hours in, raising HIGH_MOISTURE on ingest.
+WET_RISE_PER_DAY = 1.0
+
+
+def wet_sensors(bin_index: int, at: datetime, rng: random.Random, origin: datetime) -> tuple[Sensor, ...]:
+    """The normal bin, except that moisture climbs on the bottom sensors."""
+    rise = max(0.0, (at - origin) / timedelta(days=1)) * WET_RISE_PER_DAY
+    return tuple(
+        replace(s, moisture_pct=round(s.moisture_pct + rise, 1)) if s.depth == WET_DEPTH else s
+        for s in normal_sensors(bin_index, at, rng)
+    )
+
+
+# ---------------------------------------------------------------------------
+# The scenarios
+# ---------------------------------------------------------------------------
+
+SensorFunction = Callable[[int, datetime, random.Random, datetime], tuple[Sensor, ...]]
+
+
+@dataclass(frozen=True)
+class Scenario:
+    """What a scenario reports, and how.
+
+    ``history`` is how much of the past a run replays before going live, by
+    default. The backend judges rate of rise against its own clock, so a shape
+    that takes days to develop has to be placed in the past to be seen now.
+    """
+
+    name: str
+    sensors: SensorFunction
+    history: timedelta = timedelta(0)
+    flaky: bool = False
+    #: Stop after this many samples per device, by default -- the offline
+    #: scenario's "device stops reporting after N samples".
+    stops_after: int | None = None
+
+
+def _normal(bin_index: int, at: datetime, rng: random.Random, origin: datetime) -> tuple[Sensor, ...]:
+    return normal_sensors(bin_index, at, rng)
+
+
+OFFLINE_AFTER = 5
+
+SCENARIOS: dict[str, Scenario] = {
+    "normal": Scenario("normal", _normal),
+    "flaky": Scenario("flaky", _normal, flaky=True),
+    # Five days: the three steady days, then two of warming.
+    "hotspot": Scenario("hotspot", hotspot_sensors, history=timedelta(hours=120)),
+    "wet": Scenario("wet", wet_sensors, history=timedelta(hours=24)),
+    # Nothing to replay: DEVICE_OFFLINE is judged on the server's clock
+    # against when readings arrived, so it cannot be compressed (ADR 0005).
+    "offline": Scenario("offline", _normal, stops_after=OFFLINE_AFTER),
+}
 
 
 # ---------------------------------------------------------------------------
