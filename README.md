@@ -68,7 +68,7 @@ This project demonstrates production-style backend engineering end to end: API d
                                 +---------------------+
 ```
 
-Locally, `docker compose up` runs Postgres, the API, Prometheus, and Grafana. The front end runs with `npm run dev`.
+Locally, `docker compose up` runs Postgres, Prometheus, and Grafana; the API joins it in Milestone 3, and until then runs on the host with `./mvnw spring-boot:run`. The front end runs with `npm run dev`.
 
 ---
 
@@ -296,7 +296,7 @@ Organize backend packages by feature (`ingest`, `alerts`, `bins`), not by layer.
 ### Running it
 
 ```bash
-docker compose up -d db                               # PostgreSQL on localhost:5432
+docker compose up -d                                  # PostgreSQL :5432, Prometheus :9090, Grafana :3000
 cd backend && ./mvnw spring-boot:run                  # API on :8080, configured from ../.env
 python simulator/sim.py --seed-bins 3                 # bins + devices; keys saved to simulator/.devices.json
 python simulator/sim.py --scenario normal --interval 10
@@ -312,11 +312,14 @@ To see scheduled alerts sooner, start the API with shorter checks:
 The dashboard: `cd frontend && npm run dev`, then open http://localhost:5173 and
 sign in with the `ADMIN_TOKEN` from `.env`.
 
-Still to come: Prometheus and Grafana in Compose, later in Milestone 2.
+**Monitoring:** open http://localhost:3000 for the *Grain Bin Telemetry* Grafana dashboard -- readings per second by outcome, ingest requests and latency percentiles, and alert transitions. Viewing needs no login; the `admin` account, for editing, uses `GRAFANA_ADMIN_PASSWORD` from `.env`. Prometheus scrapes the API on the host every 15 seconds as `host.docker.internal:8080`; if the dashboard's *API scrape* panel says DOWN, check http://localhost:9090 under *Status > Targets*.
+
+The Prometheus and Grafana configuration under `ops/` is **built into their images**, not mounted: the Docker engine inside Rancher Desktop cannot mount files from the network drive this repository is developed on. After editing anything under `ops/`, run `docker compose up -d --build`. The dashboard is provisioned from `ops/grafana/dashboards/grain-telemetry.json`; to change it, edit in Grafana as admin, export the JSON, and replace that file.
+
 `docker compose up` running everything, including the API container, arrives in
 Milestone 3 with the Dockerfile.
 
-Configuration comes from environment variables (see `.env.example`): `DB_URL`, `DB_USER`, `DB_PASSWORD`, `ADMIN_TOKEN`, `CORS_ALLOWED_ORIGINS`, and optionally `APP_INGEST_MAX_SAMPLE_AGE`, `APP_ALERTS_OFFLINE_CHECK_INTERVAL` and `APP_ALERTS_RATE_OF_RISE_CHECK_INTERVAL` (defaults `1m` and `5m`; shorten them for a demo). Never commit `.env`. `CORS_ALLOWED_ORIGINS` lists the exact origins a browser may call the API from, such as the dashboard's `http://localhost:5173`; empty allows none, and wildcards are refused.
+Configuration comes from environment variables (see `.env.example`): `DB_URL`, `DB_USER`, `DB_PASSWORD`, `ADMIN_TOKEN`, `CORS_ALLOWED_ORIGINS`, `GRAFANA_ADMIN_PASSWORD`, and optionally `APP_INGEST_MAX_SAMPLE_AGE`, `APP_ALERTS_OFFLINE_CHECK_INTERVAL` and `APP_ALERTS_RATE_OF_RISE_CHECK_INTERVAL` (defaults `1m` and `5m`; shorten them for a demo). Never commit `.env`. `CORS_ALLOWED_ORIGINS` lists the exact origins a browser may call the API from, such as the dashboard's `http://localhost:5173`; empty allows none, and wildcards are refused.
 
 Spring Boot does not read `.env` files by itself. `./mvnw spring-boot:run` switches on a `local` profile that imports the root `.env`, so the API and Compose always agree -- change the database password there and both sides see it. A variable exported in the shell still wins. The tests never activate that profile, so a developer's `.env` cannot change what they see.
 
@@ -405,7 +408,7 @@ Work in order. Each milestone ends with every check above passing and a short su
 - [x] Alert engine with all four types, dedupe, auto-resolve, and metrics
 - [x] Simulator `hotspot`, `wet`, and `offline` scenarios, and a test that each one produces the expected alert
 - [x] React + TypeScript dashboard: bin list, bin detail (grid and charts), alerts view
-- [ ] Prometheus and Grafana in Compose, with a provisioned dashboard for ingest rate, latency, and alert transitions
+- [x] Prometheus and Grafana in Compose, with a provisioned dashboard for ingest rate, latency, and alert transitions
 
 ### Milestone 3: Containers, CI/CD, AWS (week 3)
 - [ ] Production Dockerfile meeting the requirements above

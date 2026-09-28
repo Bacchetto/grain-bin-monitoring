@@ -1,12 +1,20 @@
 # Local development infrastructure.
 #
-#   docker compose up -d db        start PostgreSQL in the background
+#   docker compose up -d           start PostgreSQL, Prometheus and Grafana
+#   docker compose up -d db        just the database
 #   docker compose ps              db should show "healthy"
-#   docker compose down            stop it; data survives in the volume
-#   docker compose down -v         stop it and delete all data
+#   docker compose down            stop them; data survives in the volumes
+#   docker compose down -v         stop them and delete all data
+#   docker compose up -d --build   after editing anything under ops/: the
+#                                  Prometheus and Grafana config is built into
+#                                  their images (see ops/*/Dockerfile for why)
 #
-# Prometheus and Grafana join this file in Milestone 2, and the API container
-# in Milestone 3 once the Dockerfile exists. Until then the API runs on the host:
+#   Grafana:    http://localhost:3000   (the Grain Bin Telemetry dashboard)
+#   Prometheus: http://localhost:9090   (Status > Targets shows whether the
+#                                        API is being scraped)
+#
+# The API container joins in Milestone 3 once the Dockerfile exists. Until
+# then the API runs on the host, and Prometheus reaches it from its container:
 #   cd backend && ./mvnw spring-boot:run
 #
 # Values come from .env in this directory, which Compose reads automatically,
@@ -39,6 +47,53 @@ services:
       timeout: 3s
       retries: 10
 
+  prometheus:
+    # Prometheus with ops/prometheus/prometheus.yml built in; the base image
+    # version is pinned in that Dockerfile.
+    build: ./ops/prometheus
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      # Local metrics are for watching a run, not for history; a week is plenty
+      # and keeps the volume small.
+      - --storage.tsdb.retention.time=7d
+    volumes:
+      - promdata:/prometheus
+    ports:
+      - "127.0.0.1:9090:9090"
+    # Prometheus reaches the API on the host as host.docker.internal, a name
+    # that Rancher Desktop and Docker Desktop both define. Do NOT add
+    # `extra_hosts: host.docker.internal:host-gateway` here, as guides for
+    # Linux suggest: under Rancher Desktop it replaces the working name with
+    # the address of the engine's own VM, where nothing is listening -- tried,
+    # and the scrape failed with "connection refused". Only Docker running
+    # natively on Linux needs that line.
+
+  grafana:
+    # Grafana with the data source and dashboard from ops/grafana built in.
+    build: ./ops/grafana
+    depends_on:
+      - prometheus
+    environment:
+      # The admin account can edit; anyone else gets a read-only view. Local
+      # only: the port is bound to localhost, and neither setting is how a
+      # deployed Grafana would be run. The password comes from .env; the
+      # fallback is for a fresh checkout with no .env at all.
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      # Open straight onto the provisioned dashboard.
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /etc/grafana/dashboards/grain-telemetry.json
+      # No phoning home from a development machine.
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+    volumes:
+      - grafanadata:/var/lib/grafana
+    ports:
+      - "127.0.0.1:3000:3000"
+
 volumes:
   # Named, so data outlives the container: `down` keeps it, `down -v` removes it.
   pgdata:
+  promdata:
+  grafanadata:

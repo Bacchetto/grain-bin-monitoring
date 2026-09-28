@@ -1,0 +1,19 @@
+# Grafana reads this at startup and creates the data source, so a fresh
+# container needs no clicking through settings. Edits made in the UI are lost
+# on restart; change this file instead.
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    type: prometheus
+    # A fixed uid, so the provisioned dashboard can refer to this data source
+    # by it. Without one Grafana generates a random uid on each fresh start
+    # and the dashboard's panels would point at nothing.
+    uid: prometheus
+    # "proxy": Grafana's server makes the queries, not the browser -- so the
+    # browser never needs to reach Prometheus. `prometheus` is the Compose
+    # service name, resolvable inside the Compose network.
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    editable: false

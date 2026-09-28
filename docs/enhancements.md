@@ -23,6 +23,7 @@ milestone; if it is rejected, it stays here marked as such, with the reason.
 | E12 | [Track data freshness separately from liveness](#e12) | Devices, dashboard | Proposed |
 | E13 | [Faster `latest` for dense bins](#e13) | Query performance | Proposed -- only if bins get dense |
 | E14 | [Daily buckets in the site's local time](#e14) | Query API, dashboard | Proposed |
+| E15 | [Keep the metrics endpoint off the public internet](#e15) | Security, operations | Proposed -- **must be settled in Milestone 3** |
 
 ---
 
@@ -347,3 +348,25 @@ used takes the zone as a parameter, so the query barely changes.
   bucket-count cap and any client code that assumes 24-hour days need care.
 - The zone must come from data, never be interpolated from caller input.
 - Hourly buckets are unaffected, apart from zones offset by a non-whole hour.
+
+---
+
+<a id="e15"></a>
+## E15 - Keep the metrics endpoint off the public internet
+
+**Raised:** Milestone 2 Phase 8
+
+**Today.** `/actuator/prometheus` needs no credentials: Prometheus has none to
+present, and the auth filters cover only `/api/v1`. Locally that is fine -- the
+API and Prometheus are on one machine. Deployed behind a public load balancer,
+it would publish request rates, latencies, error counts and alert activity to
+anyone who asks, and give them a cheap endpoint to hammer.
+
+**The idea.** Do not route `/actuator/**` through the public ALB listener at
+all in Milestone 3, except `/actuator/health` for the target group's health
+check. Metrics then reach CloudWatch from inside the VPC. If something outside
+ever has to scrape it, serve the actuator on a separate management port that
+only the VPC can reach (`management.server.port`), rather than adding
+credentials to a public path.
+
+**Related.** E10 (production-grade admin authentication).

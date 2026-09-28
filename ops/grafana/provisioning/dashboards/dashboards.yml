@@ -1,0 +1,14 @@
+# Tells Grafana to load every dashboard JSON file in a directory at startup.
+# The directory is mounted from ops/grafana/dashboards in the repository, so
+# the dashboard is version-controlled like the code it monitors.
+apiVersion: 1
+
+providers:
+  - name: grain-telemetry
+    type: file
+    # Provisioned dashboards cannot be saved from the UI: the file is the
+    # source of truth. To change the dashboard, edit it in Grafana, export the
+    # JSON (Share > Export), and replace the file.
+    allowUiUpdates: false
+    options:
+      path: /etc/grafana/dashboards
