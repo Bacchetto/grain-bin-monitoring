@@ -1,6 +1,6 @@
 import { QueryCache, QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
-import { createApiClient, UnauthorizedError } from '../api/client'
+import { ApiError, createApiClient, NetworkError, UnauthorizedError } from '../api/client'
 import { AuthContext, type Auth } from './authContext'
 
 /**
@@ -38,8 +38,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }),
         defaultOptions: {
           queries: {
-            // Retrying a 401 cannot succeed; retrying a network blip might.
-            retry: (failureCount, error) => !(error instanceof UnauthorizedError) && failureCount < 2,
+            // Retry only what a retry might fix: no answer at all, or a
+            // server error. A 4xx -- a bad token, a bin that does not exist --
+            // will get the same answer every time, and retrying it only delays
+            // the error by the retry backoff.
+            retry: (failureCount, error) =>
+              failureCount < 2 &&
+              (error instanceof NetworkError || (error instanceof ApiError && error.status >= 500)),
           },
         },
       }),
