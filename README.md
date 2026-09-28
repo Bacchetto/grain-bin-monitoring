@@ -145,8 +145,8 @@ Authenticated with `Authorization: Bearer <ADMIN_TOKEN>`, where the token comes 
 | POST | `/bins/{id}/devices` | Register a device. Returns the plaintext API key **once**. |
 | GET | `/bins/{id}/latest` | Latest reading per sensor, from the last 7 days; a sensor silent for longer is omitted rather than shown stale |
 | GET | `/bins/{id}/readings?from=&to=&bucket=hour\|day` | Time-bucketed averages, min, and max per sensor over `[from, to)`. Buckets align to UTC; at most 1,000 per sensor per request |
-| GET | `/alerts?status=open\|acknowledged\|resolved&binId=` | List alerts *(Milestone 2)* |
-| POST | `/alerts/{id}/acknowledge` | Acknowledge an alert *(Milestone 2)* |
+| GET | `/alerts?status=open\|acknowledged\|resolved&binId=&limit=` | List alerts, newest detection first. `status` also takes several values, comma-separated (`open,acknowledged`), and defaults to all. `limit` defaults to 100, at most 500. |
+| POST | `/alerts/{id}/acknowledge` | Acknowledge an open alert. Repeating it is harmless; a resolved alert is a `409`. |
 
 Device API keys cannot be revoked yet: a lost or leaked key keeps working until its device is removed from the database by hand. This is a known gap, enhancement [E7](docs/enhancements.md#e7).
 
@@ -285,7 +285,7 @@ Still to come: Prometheus and Grafana in Compose, the front end
 `docker compose up` running everything, including the API container, arrives in
 Milestone 3 with the Dockerfile.
 
-Configuration comes from environment variables (see `.env.example`): `DB_URL`, `DB_USER`, `DB_PASSWORD`, `ADMIN_TOKEN`, `CORS_ALLOWED_ORIGINS`, and optionally `APP_INGEST_MAX_SAMPLE_AGE`, `APP_ALERTS_OFFLINE_CHECK_INTERVAL` and `APP_ALERTS_RATE_OF_RISE_CHECK_INTERVAL` (defaults `1m` and `5m`; shorten them for a demo). Never commit `.env`. `CORS_ALLOWED_ORIGINS` is not read by the API yet; it is wired up in Milestone 2 with the front end that needs it.
+Configuration comes from environment variables (see `.env.example`): `DB_URL`, `DB_USER`, `DB_PASSWORD`, `ADMIN_TOKEN`, `CORS_ALLOWED_ORIGINS`, and optionally `APP_INGEST_MAX_SAMPLE_AGE`, `APP_ALERTS_OFFLINE_CHECK_INTERVAL` and `APP_ALERTS_RATE_OF_RISE_CHECK_INTERVAL` (defaults `1m` and `5m`; shorten them for a demo). Never commit `.env`. `CORS_ALLOWED_ORIGINS` lists the exact origins a browser may call the API from, such as the dashboard's `http://localhost:5173`; empty allows none, and wildcards are refused.
 
 Spring Boot does not read `.env` files by itself. `./mvnw spring-boot:run` switches on a `local` profile that imports the root `.env`, so the API and Compose always agree -- change the database password there and both sides see it. A variable exported in the shell still wins. The tests never activate that profile, so a developer's `.env` cannot change what they see.
 

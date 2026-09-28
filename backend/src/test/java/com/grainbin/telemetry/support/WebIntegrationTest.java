@@ -41,6 +41,9 @@ import tools.jackson.databind.ObjectMapper;
  * {@code IngestPropertiesTest}. Set here, on the base, so every web test still
  * shares one context.
  *
+ * <p>CORS allows {@link #DASHBOARD_ORIGIN} here, as a local {@code .env}
+ * would. Also set on the base, for the same reason.
+ *
  * <p>Tests here are <em>not</em> transactional. They exercise the real request
  * path, and a request handled by the server runs in its own transaction, so a
  * rollback around the test method would not undo it anyway. Each test creates
@@ -48,8 +51,13 @@ import tools.jackson.databind.ObjectMapper;
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @Import(TestcontainersConfiguration.class)
-@TestPropertySource(properties = "app.ingest.max-sample-age=365d")
+@TestPropertySource(properties = {
+		"app.ingest.max-sample-age=365d",
+		"app.cors.allowed-origins=" + WebIntegrationTest.DASHBOARD_ORIGIN })
 public abstract class WebIntegrationTest {
+
+	/** The one origin CORS allows in web tests, standing in for the dashboard. */
+	protected static final String DASHBOARD_ORIGIN = "http://localhost:5173";
 
 	@LocalServerPort
 	private int port;

@@ -76,4 +76,39 @@ class ConfigurationValidationTest {
 					assertThat(context.getStartupFailure()).hasStackTraceContaining("maxSampleAge");
 				});
 	}
+
+	// -----------------------------------------------------------------------
+	// CORS
+	// -----------------------------------------------------------------------
+
+	private final ApplicationContextRunner corsRunner = new ApplicationContextRunner()
+			.withUserConfiguration(CorsConfig.class);
+
+	@Test
+	@DisplayName("CORS_ALLOWED_ORIGINS binds a comma-separated list of origins")
+	void corsOriginsBindAsList() {
+		this.corsRunner.withPropertyValues("app.cors.allowed-origins=http://localhost:5173, https://dash.example")
+				.run(context -> assertThat(context.getBean(CorsProperties.class).allowedOrigins())
+						.containsExactly("http://localhost:5173", "https://dash.example"));
+	}
+
+	@Test
+	@DisplayName("no CORS origins configured means none are allowed, and still starts")
+	void corsDefaultsToNone() {
+		this.corsRunner.run(context -> {
+			assertThat(context).hasNotFailed();
+			assertThat(context.getBean(CorsProperties.class).allowedOrigins()).isEmpty();
+		});
+	}
+
+	@Test
+	@DisplayName("a wildcard CORS origin stops startup")
+	void corsWildcardStopsStartup() {
+		// With an admin token in play, "any origin" is never what is meant.
+		this.corsRunner.withPropertyValues("app.cors.allowed-origins=*")
+				.run(context -> {
+					assertThat(context).hasFailed();
+					assertThat(context.getStartupFailure()).hasStackTraceContaining("wildcards are not accepted");
+				});
+	}
 }
