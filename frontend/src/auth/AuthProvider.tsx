@@ -11,6 +11,7 @@ import { AuthContext, type Auth } from './authContext'
  * ever runs on the page, including an injected one, and it outlives the tab.
  * The cost is that reloading the page asks for the token again. For a
  * token that grants every admin action, that is the right trade.
+ * See docs/decisions/0018-dashboard-stack-and-in-memory-token.md.
  *
  * It also owns the TanStack Query cache, for one reason: data fetched with a
  * token must not outlive it. Signing out, or being signed out by a 401,

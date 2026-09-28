@@ -57,3 +57,12 @@ of them; package docs carry anything that might need updating later.
 | [0010](0010-monthly-range-partitioning.md) | Range-partition `readings` by month | `V2`, `readings` |
 | [0011](0011-bin-id-denormalised-onto-readings.md) | Store `bin_id` on every reading | `V2`, `ingest` |
 | [0012](0012-rancher-desktop-for-local-containers.md) | Rancher Desktop as the local container runtime | local development |
+| [0013](0013-rate-of-rise-on-daily-averages.md) | Measure rate of rise on daily averages | `alerts` |
+| [0014](0014-what-counts-as-an-alert-evaluation.md) | What counts as one alert evaluation | `alerts`, `ingest` |
+| [0015](0015-advisory-lock-for-scheduled-alert-jobs.md) | One instance at a time for scheduled alert jobs, by advisory lock | `alerts`, `config` |
+| [0016](0016-ignore-probe-fault-values-in-alert-evaluation.md) | Keep probe fault values out of alert evaluation | `alerts` |
+| [0017](0017-cors-filter-before-authentication.md) | A CORS filter ahead of the authentication filters | `config` |
+| [0018](0018-dashboard-stack-and-in-memory-token.md) | Dashboard stack, and a token held in memory only | `frontend` |
+| [0019](0019-structured-json-logging.md) | Structured JSON logging, built into Spring Boot | logging |
+| [0020](0020-time-scale-replays-the-past.md) | The simulator's `--time-scale` replays the past | `simulator` |
+| [0021](0021-local-tooling-on-a-network-drive.md) | Local tooling that works from a network drive: poll, don't watch; build, don't mount | `frontend`, `ops`, Compose |

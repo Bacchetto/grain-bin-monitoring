@@ -13,7 +13,7 @@ export default defineConfig({
     // start ("UNKNOWN: unknown error, watch"). Polling asks "has anything
     // changed?" on a timer instead: slightly more CPU, but it works on any
     // drive. Set VITE_NATIVE_WATCH=true on a local disk to go back to the
-    // faster native watcher.
+    // faster native watcher. See docs/decisions/0021-local-tooling-on-a-network-drive.md.
     watch: process.env.VITE_NATIVE_WATCH === 'true' ? {} : { usePolling: true, interval: 300 },
   },
   // Vitest reads its settings from here, so tests compile exactly as the app

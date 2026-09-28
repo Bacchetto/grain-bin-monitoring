@@ -4,6 +4,7 @@
 # repository's network drive cannot be mounted into a container here. After
 # changing anything under provisioning/ or dashboards/:
 #   docker compose up -d --build
+# See docs/decisions/0021-local-tooling-on-a-network-drive.md.
 
 FROM grafana/grafana:13.2.2
 

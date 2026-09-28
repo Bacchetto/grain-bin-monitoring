@@ -71,7 +71,7 @@
  * predicate has to be repeated in the conflict target for PostgreSQL to use
  * them for inference.
  *
- * <p>Consequences worth knowing before writing the engine:
+ * <p>Rules any change to the engine has to keep:
  *
  * <ul>
  *   <li>{@code GET /alerts} may return several {@code DEVICE_OFFLINE} rows for
@@ -84,11 +84,25 @@
  *       {@code RATE_OF_RISE}, and {@code 85} on power-up would trip
  *       {@code HIGH_TEMPERATURE}. Every evaluator must skip readings that
  *       {@link com.grainbin.telemetry.alerts.SensorPlausibility} rejects,
- *       counting them as neither a detection nor a clear. See also
- *       {@code docs/enhancements.md}, E3.</li>
+ *       counting them as neither a detection nor a clear. See
+ *       {@code docs/decisions/0016-ignore-probe-fault-values-in-alert-evaluation.md}.</li>
  *   <li>Lifecycle invariants are {@code CHECK} constraints in the database, so
  *       setting {@code status} and its matching timestamp must happen in the
  *       same statement or the write is rejected.</li>
+ * </ul>
+ *
+ * <h2>Decisions recorded for this package</h2>
+ *
+ * <ul>
+ *   <li>{@code docs/decisions/0002-device-scoped-offline-alert-dedupe.md} --
+ *       the two de-duplication rules</li>
+ *   <li>{@code docs/decisions/0013-rate-of-rise-on-daily-averages.md}</li>
+ *   <li>{@code docs/decisions/0014-what-counts-as-an-alert-evaluation.md} --
+ *       read this before changing when a clear is recorded</li>
+ *   <li>{@code docs/decisions/0015-advisory-lock-for-scheduled-alert-jobs.md}</li>
+ *   <li>{@code docs/decisions/0016-ignore-probe-fault-values-in-alert-evaluation.md}</li>
+ *   <li>{@code docs/decisions/0019-structured-json-logging.md} -- the
+ *       transition log line</li>
  * </ul>
  */
 package com.grainbin.telemetry.alerts;

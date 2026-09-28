@@ -45,7 +45,7 @@ SIM_GRAIN = "canola"
 # rate of rise against its own clock, so a shape that takes days to develop
 # has to be placed in the past and replayed quickly up to now. At the default,
 # an hour of history takes a second: hotspot's five days replay in two minutes.
-DEFAULT_TIME_SCALE = 3600
+DEFAULT_TIME_SCALE = 3600  # See docs/decisions/0020-time-scale-replays-the-past.md.
 
 # The backend rejects samples older than 30 days (APP_INGEST_MAX_SAMPLE_AGE).
 # A day's margin, so a long replay's first samples are not rejected by the time

@@ -160,7 +160,7 @@ Health and metrics are served at `/actuator/health` and `/actuator/prometheus`.
 |---|---|---|
 | `HIGH_TEMPERATURE` | Any sensor above `max_temperature_c` (default 20.0) | On ingest |
 | `HIGH_MOISTURE` | Any sensor above `max_moisture_pct` (default 14.5) | On ingest |
-| `RATE_OF_RISE` | A sensor's temperature has risen at least `rise_threshold_c` (default 2.0) over the trailing `rise_window_hours` (default 72). Measured on daily averages -- the last 24 h against the 24 h that ended `rise_window_hours` ago -- so the normal day/night swing near the top of a bin is not mistaken for a rise. A sensor needs half a day's expected readings in each window to be judged. | Scheduled, every 5 min |
+| `RATE_OF_RISE` | A sensor's temperature has risen at least `rise_threshold_c` (default 2.0) over the trailing `rise_window_hours` (default 72). Measured on daily averages -- the last 24 h against the 24 h that ended `rise_window_hours` ago -- so the normal day/night swing near the top of a bin is not mistaken for a rise. A sensor needs half a day's expected readings in each window to be judged. See [ADR 0013](docs/decisions/0013-rate-of-rise-on-daily-averages.md). | Scheduled, every 5 min |
 | `DEVICE_OFFLINE` | `now - last_seen_at > 3 × expected_interval_seconds`. A device that has never reported is measured from its registration. | Scheduled, every 1 min |
 
 The default thresholds are placeholders for demonstration, not agronomic guidance.
@@ -176,11 +176,11 @@ Lifecycle and rules:
 - Auto-resolve when the condition has been clear for 3 consecutive evaluations. This prevents flapping.
   For the on-ingest alerts, one evaluation is one batch's newest *newly stored* reading per sensor: a resent
   duplicate batch evaluates nothing, a buffered backlog counts once, and a batch that arrives after newer data
-  for the same sensor is not evaluated at all.
+  for the same sensor is not evaluated at all. See [ADR 0014](docs/decisions/0014-what-counts-as-an-alert-evaluation.md).
 - `DEVICE_OFFLINE` must be based on the last **successfully stored** reading, not on connection attempts. A device that connects but sends only rejected or duplicate data is still offline from a data standpoint.
-- Probe fault values are stored and shown, but never evaluated. Firmware commonly reports −127 °C for an unreadable DS18B20, which would make a recovery to 12 °C look like a 139 °C rise, and the probe itself reads 85 °C before its first conversion after power-up. The engine skips exactly 85.0 °C and anything outside −60..100 °C; the range is wide so that genuinely heating grain is never mistaken for a fault. A fuller treatment is enhancement [E3](docs/enhancements.md#e3).
-- With more than one API instance, each scheduled job still runs on only one of them at a time (a PostgreSQL advisory lock), so a clear is never counted twice.
-- Every alert state change is logged as structured JSON and counted with a Micrometer counter (`alerts_transitions_total{type,to_state}`).
+- Probe fault values are stored and shown, but never evaluated. Firmware commonly reports −127 °C for an unreadable DS18B20, which would make a recovery to 12 °C look like a 139 °C rise, and the probe itself reads 85 °C before its first conversion after power-up. The engine skips exactly 85.0 °C and anything outside −60..100 °C; the range is wide so that genuinely heating grain is never mistaken for a fault. See [ADR 0016](docs/decisions/0016-ignore-probe-fault-values-in-alert-evaluation.md); a fuller treatment is enhancement [E3](docs/enhancements.md#e3).
+- With more than one API instance, each scheduled job still runs on only one of them at a time (a PostgreSQL advisory lock), so a clear is never counted twice. See [ADR 0015](docs/decisions/0015-advisory-lock-for-scheduled-alert-jobs.md).
+- Every alert state change is logged as structured JSON ([ADR 0019](docs/decisions/0019-structured-json-logging.md)) and counted with a Micrometer counter (`alerts_transitions_total{type,to_state}`).
 
 ---
 
@@ -202,7 +202,7 @@ python simulator/sim.py --url http://localhost:8080 --scenario normal --bins 5 -
 
 Use `--time-scale` to compress simulated time so that multi-day scenarios run in minutes. The simulator also has a `--seed-bins` mode that creates bins and devices through the admin API and writes the device keys to a local, git-ignored file.
 
-**How `--time-scale` works: it replays the past.** The backend rejects samples more than five minutes in the future and judges rate of rise against its own clock, so a shape that takes days to develop has to be placed in the past. A scenario starts `--history` hours ago -- by default 120 for `hotspot` (three steady days, then two of warming), 24 for `wet`, 0 otherwise -- and is replayed `--time-scale` times faster than real time (default 3600, an hour a second) until it catches up with the present, then carries on live. Replayed samples are spaced at the device's registered interval, because the rate-of-rise rule needs half a day's expected readings in each window. `--history` also works with `normal`, to give the dashboard's charts some past to show. It is capped at 29 days, inside the backend's 30-day sample-age limit.
+**How `--time-scale` works: it replays the past.** The backend rejects samples more than five minutes in the future and judges rate of rise against its own clock, so a shape that takes days to develop has to be placed in the past. A scenario starts `--history` hours ago -- by default 120 for `hotspot` (three steady days, then two of warming), 24 for `wet`, 0 otherwise -- and is replayed `--time-scale` times faster than real time (default 3600, an hour a second) until it catches up with the present, then carries on live ([ADR 0020](docs/decisions/0020-time-scale-replays-the-past.md)). Replayed samples are spaced at the device's registered interval, because the rate-of-rise rule needs half a day's expected readings in each window. `--history` also works with `normal`, to give the dashboard's charts some past to show. It is capped at 29 days, inside the backend's 30-day sample-age limit.
 
 | Scenario | What it raises, and when |
 |---|---|
@@ -238,7 +238,7 @@ Built with Vite + React + TypeScript and strict mode on. Keep it small and funct
 - **Alerts view:** every open and acknowledged alert, newest first, with an Acknowledge button. Acknowledging refreshes the list from the server; if the alert resolved first (`409`), the page says so.
 - The detail page is loaded lazily, so the chart library is downloaded only when a bin is opened: about 95 kB gzipped for the rest of the app, 110 kB more for the charts.
 
-- **Libraries:** React Router for pages and TanStack Query for fetching and caching. The token and the query cache live together, so signing out -- or being signed out by a `401` from any request -- also empties the cache. Tests use Vitest and React Testing Library, with `fetch` replaced by a fake that answers like the API.
+- **Libraries:** React Router for pages and TanStack Query for fetching and caching ([ADR 0018](docs/decisions/0018-dashboard-stack-and-in-memory-token.md)). The token and the query cache live together, so signing out -- or being signed out by a `401` from any request -- also empties the cache. Tests use Vitest and React Testing Library, with `fetch` replaced by a fake that answers like the API.
 - **The token is checked before it is accepted**, by listing bins with it, so a mistyped token fails on the login screen with a clear message. Reloading the page asks for it again: that is the cost of keeping it in memory only.
 - **API URL:** `VITE_API_URL`, default `http://localhost:8080`. Vite reads it from the environment or a `frontend/.env.local` file at build time. The API must list the dashboard's origin in `CORS_ALLOWED_ORIGINS`; `.env.example` already has `http://localhost:5173`.
 
@@ -249,7 +249,7 @@ Built with Vite + React + TypeScript and strict mode on. Keep it small and funct
 ```
 .
 ├── backend/                  Spring Boot service (Maven)
-│   ├── src/main/java/...     api/, ingest/, alerts/, bins/, devices/, config/
+│   ├── src/main/java/...     one package per feature: ingest/, readings/, alerts/, bins/, devices/, config/, common/
 │   ├── src/main/resources/db/migration/   Flyway scripts
 │   ├── src/test/java/...
 │   └── Dockerfile
@@ -314,12 +314,12 @@ sign in with the `ADMIN_TOKEN` from `.env`.
 
 **Monitoring:** open http://localhost:3000 for the *Grain Bin Telemetry* Grafana dashboard -- readings per second by outcome, ingest requests and latency percentiles, and alert transitions. Viewing needs no login; the `admin` account, for editing, uses `GRAFANA_ADMIN_PASSWORD` from `.env`. Prometheus scrapes the API on the host every 15 seconds as `host.docker.internal:8080`; if the dashboard's *API scrape* panel says DOWN, check http://localhost:9090 under *Status > Targets*.
 
-The Prometheus and Grafana configuration under `ops/` is **built into their images**, not mounted: the Docker engine inside Rancher Desktop cannot mount files from the network drive this repository is developed on. After editing anything under `ops/`, run `docker compose up -d --build`. The dashboard is provisioned from `ops/grafana/dashboards/grain-telemetry.json`; to change it, edit in Grafana as admin, export the JSON, and replace that file.
+The Prometheus and Grafana configuration under `ops/` is **built into their images**, not mounted: the Docker engine inside Rancher Desktop cannot mount files from the network drive this repository is developed on. After editing anything under `ops/`, run `docker compose up -d --build`. See [ADR 0021](docs/decisions/0021-local-tooling-on-a-network-drive.md). The dashboard is provisioned from `ops/grafana/dashboards/grain-telemetry.json`; to change it, edit in Grafana as admin, export the JSON, and replace that file.
 
 `docker compose up` running everything, including the API container, arrives in
 Milestone 3 with the Dockerfile.
 
-Configuration comes from environment variables (see `.env.example`): `DB_URL`, `DB_USER`, `DB_PASSWORD`, `ADMIN_TOKEN`, `CORS_ALLOWED_ORIGINS`, `GRAFANA_ADMIN_PASSWORD`, and optionally `APP_INGEST_MAX_SAMPLE_AGE`, `APP_ALERTS_OFFLINE_CHECK_INTERVAL` and `APP_ALERTS_RATE_OF_RISE_CHECK_INTERVAL` (defaults `1m` and `5m`; shorten them for a demo). Never commit `.env`. `CORS_ALLOWED_ORIGINS` lists the exact origins a browser may call the API from, such as the dashboard's `http://localhost:5173`; empty allows none, and wildcards are refused.
+Configuration comes from environment variables (see `.env.example`): `DB_URL`, `DB_USER`, `DB_PASSWORD`, `ADMIN_TOKEN`, `CORS_ALLOWED_ORIGINS`, `GRAFANA_ADMIN_PASSWORD`, and optionally `APP_INGEST_MAX_SAMPLE_AGE`, `APP_ALERTS_OFFLINE_CHECK_INTERVAL` and `APP_ALERTS_RATE_OF_RISE_CHECK_INTERVAL` (defaults `1m` and `5m`; shorten them for a demo). Never commit `.env`. `CORS_ALLOWED_ORIGINS` lists the exact origins a browser may call the API from, such as the dashboard's `http://localhost:5173`; empty allows none, and wildcards are refused. Why CORS runs before authentication: [ADR 0017](docs/decisions/0017-cors-filter-before-authentication.md).
 
 Spring Boot does not read `.env` files by itself. `./mvnw spring-boot:run` switches on a `local` profile that imports the root `.env`, so the API and Compose always agree -- change the database password there and both sides see it. A variable exported in the shell still wins. The tests never activate that profile, so a developer's `.env` cannot change what they see.
 

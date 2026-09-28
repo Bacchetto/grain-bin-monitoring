@@ -36,7 +36,8 @@ import static com.grainbin.telemetry.config.ClockConfig.APPLICATION_ZONE;
  * days cancels that cycle exactly, because every hour of the day is counted
  * once in each window. It also blunts single noisy readings. The cost is
  * reaction time: a rise shows fully only once a day of it has been averaged,
- * which suits grain, where spoilage builds over days. See ADR 0013.
+ * which suits grain, where spoilage builds over days. See
+ * {@code docs/decisions/0013-rate-of-rise-on-daily-averages.md}.
  *
  * <p>Each window is its own range on the {@code (bin_id, recorded_at)}
  * index, so the query reads two days of a bin's data whatever the window

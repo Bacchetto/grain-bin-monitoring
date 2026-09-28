@@ -11,7 +11,7 @@ milestone; if it is rejected, it stays here marked as such, with the reason.
 |---|---|---|---|
 | E1 | [Reject invalid readings individually instead of failing the batch](#e1) | Ingest | Proposed |
 | E2 | [Detect device clock faults from `recordedAt` behaviour](#e2) | Ingest, alerts | Proposed |
-| E3 | [Treat implausible sensor values as faults](#e3) | Ingest, alerts | Proposed -- consider with Milestone 2 |
+| E3 | [Treat implausible sensor values as faults](#e3) | Ingest, alerts | **Partly addressed** in Milestone 2 ([ADR 0016](decisions/0016-ignore-probe-fault-values-in-alert-evaluation.md)) |
 | E4 | [Single-statement bulk insert](#e4) | Ingest performance | Proposed -- only if load tests call for it |
 | E5 | [Cache device key lookups](#e5) | Ingest performance | Proposed -- only if load tests call for it |
 | E6 | [Scheduled check for orphaned readings](#e6) | Data integrity | Proposed |
@@ -134,6 +134,12 @@ not grain.
 impossible jumps, values outside a plausible range -- and keep them out of
 alert evaluation, either by quarantining them or by storing them with a quality
 flag. This should be decided alongside the alert engine rather than after it.
+
+**Milestone 2 did the first half.** The alert engine ignores exactly 85.0 °C and
+anything outside −60 to 100 °C, counting such readings as neither a detection
+nor a clear ([ADR 0016](decisions/0016-ignore-probe-fault-values-in-alert-evaluation.md)).
+Still open: a quality flag on stored readings, so the dashboard can mark
+suspect values too, and catching a probe stuck at a *plausible* wrong value.
 
 ---
 
