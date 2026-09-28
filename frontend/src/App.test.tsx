@@ -1,31 +1,16 @@
-import { render, screen, waitFor, within } from '@testing-library/react'
+import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { MemoryRouter } from 'react-router'
-import { afterEach, describe, expect, it, vi } from 'vitest'
-import { App } from './App'
-import { AuthProvider } from './auth/AuthProvider'
+import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import { BIN_LIST_REFRESH_MS } from './pages/BinListPage'
-import { bin, fakeApi, GOOD_TOKEN } from './test/fakeApi'
+import { bin, binDetail, fakeApi, GOOD_TOKEN } from './test/fakeApi'
+import { renderApp, signIn } from './test/renderApp'
 
-/**
- * The whole app -- router, auth, query cache, pages -- with only `fetch`
- * replaced. MemoryRouter is the test stand-in for BrowserRouter: it keeps the
- * current URL in memory instead of the browser's address bar.
- */
-function renderApp(path = '/') {
-  return render(
-    <MemoryRouter initialEntries={[path]}>
-      <AuthProvider>
-        <App />
-      </AuthProvider>
-    </MemoryRouter>,
-  )
-}
-
-async function signIn(token = GOOD_TOKEN, user = userEvent.setup()) {
-  await user.type(screen.getByLabelText('Admin token'), token)
-  await user.click(screen.getByRole('button', { name: 'Sign in' }))
-}
+// The page is loaded lazily in the app (see App.tsx). Its first import makes
+// Vitest transform the chart library, which takes longer than a findBy* query
+// waits; importing it once up front keeps that cost out of the first test.
+beforeAll(async () => {
+  await import('./pages/BinDetailPage')
+}, 60_000)
 
 afterEach(() => {
   vi.useRealTimers()
@@ -61,12 +46,12 @@ describe('signing in', () => {
   })
 
   it('returns to the page that was asked for', async () => {
-    fakeApi([bin()])
-    renderApp('/bins/1')
+    fakeApi({ bins: [bin()], binDetails: { 7: binDetail({ id: 7, name: 'Deep link' }) } })
+    renderApp('/bins/7')
 
     await signIn()
 
-    expect(await screen.findByText(/Bin 1: detail view/)).toBeTruthy()
+    expect(await screen.findByRole('heading', { name: 'Deep link' })).toBeTruthy()
   })
 
   it('never writes the token to browser storage', async () => {

@@ -181,3 +181,188 @@ button:disabled {
   font-weight: 400;
   opacity: 0.8;
 }
+
+/* --- shared ------------------------------------------------------------- */
+
+/* Read by screen readers, not shown: labels that the layout makes obvious to
+   a sighted reader, such as the empty corner of the grid. */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+h1 { margin: 0.25rem 0; font-size: 1.5rem; }
+h2 { font-size: 1.1rem; margin: 1.75rem 0 0.5rem; }
+
+/* --- sensor grid (heatmap) ---------------------------------------------- */
+
+.sensor-grid-wrap {
+  overflow-x: auto;
+}
+
+.sensor-grid {
+  border-collapse: separate;
+  /* The 2px gap between cells is the surface showing through: the cells are
+     told apart by it, not by borders drawn around them. */
+  border-spacing: 2px;
+}
+
+.sensor-grid th {
+  color: var(--muted);
+  font-weight: 500;
+  font-size: 0.875rem;
+  padding: 0 0.5rem;
+  text-align: center;
+}
+
+.sensor-grid th[scope='row'] {
+  text-align: right;
+}
+
+.sensor-grid td {
+  padding: 0;
+}
+
+.cell {
+  width: 4.5rem;
+  height: 2.5rem;
+  border: 0;
+  border-radius: 4px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 500;
+}
+
+.cell:hover {
+  filter: brightness(1.08);
+}
+
+/* Selected: an outline outside the cell, in text colour, so it reads on any
+   fill and in either theme. */
+.cell-selected {
+  outline: 2px solid var(--text);
+  outline-offset: 2px;
+}
+
+.cell:focus-visible {
+  outline: 2px solid var(--link);
+  outline-offset: 2px;
+}
+
+.cell-empty {
+  background: transparent;
+  color: var(--muted);
+  border: 1px dashed var(--border);
+}
+
+.cell-hot {
+  box-shadow: inset 0 0 0 3px var(--critical-text);
+}
+
+.heat-legend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.heat-legend-swatches {
+  display: inline-flex;
+  gap: 2px;
+}
+
+.heat-legend-swatches span {
+  width: 1.25rem;
+  height: 0.75rem;
+  border-radius: 2px;
+}
+
+.heat-legend-flag {
+  color: var(--critical-text);
+}
+
+/* --- history charts ----------------------------------------------------- */
+
+.history-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.range-picker {
+  display: inline-flex;
+  gap: 0.25rem;
+}
+
+.range-picker button[aria-pressed='true'] {
+  background: var(--text);
+  color: var(--bg);
+  border-color: var(--text);
+}
+
+.chart {
+  margin: 0.75rem 0 1.5rem;
+}
+
+.chart figcaption {
+  font-size: 0.9rem;
+  color: var(--muted);
+  margin-bottom: 0.25rem;
+}
+
+.chart-readout {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 0.4rem;
+  padding: 0.4rem 0.6rem;
+  font-size: 0.875rem;
+}
+
+.chart-table summary {
+  cursor: pointer;
+  font-size: 0.875rem;
+  color: var(--link);
+}
+
+.chart-table table {
+  border-collapse: collapse;
+  font-size: 0.875rem;
+  font-variant-numeric: tabular-nums;
+  margin-top: 0.5rem;
+}
+
+.chart-table th,
+.chart-table td {
+  padding: 0.2rem 0.75rem 0.2rem 0;
+  text-align: left;
+}
+
+/* --- alerts ------------------------------------------------------------- */
+
+.alerts {
+  display: block;
+  overflow-x: auto;
+  border-collapse: collapse;
+  width: 100%;
+}
+
+.alerts th,
+.alerts td {
+  text-align: left;
+  padding: 0.5rem 0.75rem;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+
+.alerts th {
+  color: var(--muted);
+  font-weight: 500;
+}

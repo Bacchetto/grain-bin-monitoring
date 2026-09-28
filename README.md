@@ -229,7 +229,14 @@ Built with Vite + React + TypeScript and strict mode on. Keep it small and funct
 - **Login screen:** prompts for the admin token. Keep the token in memory only and never write it to `localStorage`.
 - Typed API client in `frontend/src/api/`, with types that mirror the backend DTOs.
 
-**Built so far:** the login screen, the bin list (refreshing every 30 seconds), and the typed API client. The bin detail page and the alerts view come next in Milestone 2.
+**As built:**
+
+- **Bin list:** every bin with its worst open alert and last reading age, refreshing every 30 seconds.
+- **Bin detail:** the bin's limits and open alerts; a grid of the latest temperature at every cable and depth; and, for the sensor picked on the grid (the hottest, until one is picked), a temperature chart and a moisture chart over 24 h, 7 days or 30 days. Hourly buckets for the first two, daily for 30 days.
+  - The grid's colour is one blue ramp, the 20 °C below the bin's limit from pale to dark: a fixed span, so a colour means the same temperature in every bin. A cell above the limit is marked with an icon and says so in words; every cell shows its value, so nothing depends on reading a shade. A position with no reading in the last week is a gap, not a stale number.
+  - Each chart shows the bucket average as a line, the min-max range as a faint band, and the bin's limit as a reference line, with a crosshair readout and a table of every value underneath. Temperature and moisture are separate charts, never one chart with two y-axes. Colours follow the dataviz skill's reference palette, checked with its validator in both light and dark mode.
+- **Alerts view:** every open and acknowledged alert, newest first, with an Acknowledge button. Acknowledging refreshes the list from the server; if the alert resolved first (`409`), the page says so.
+- The detail page is loaded lazily, so the chart library is downloaded only when a bin is opened: about 95 kB gzipped for the rest of the app, 110 kB more for the charts.
 
 - **Libraries:** React Router for pages and TanStack Query for fetching and caching. The token and the query cache live together, so signing out -- or being signed out by a `401` from any request -- also empties the cache. Tests use Vitest and React Testing Library, with `fetch` replaced by a fake that answers like the API.
 - **The token is checked before it is accepted**, by listing bins with it, so a mistyped token fails on the login screen with a clear message. Reloading the page asks for it again: that is the cost of keeping it in memory only.
@@ -397,7 +404,7 @@ Work in order. Each milestone ends with every check above passing and a short su
 ### Milestone 2: Alerts and dashboard (week 2)
 - [x] Alert engine with all four types, dedupe, auto-resolve, and metrics
 - [x] Simulator `hotspot`, `wet`, and `offline` scenarios, and a test that each one produces the expected alert
-- [ ] React + TypeScript dashboard: bin list, bin detail (grid and charts), alerts view
+- [x] React + TypeScript dashboard: bin list, bin detail (grid and charts), alerts view
 - [ ] Prometheus and Grafana in Compose, with a provisioned dashboard for ingest rate, latency, and alert transitions
 
 ### Milestone 3: Containers, CI/CD, AWS (week 3)

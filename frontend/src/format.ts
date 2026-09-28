@@ -30,3 +30,18 @@ export const ALERT_LABELS: Record<AlertType, { label: string; severity: 'critica
   HIGH_MOISTURE: { label: 'High moisture', severity: 'warning' },
   DEVICE_OFFLINE: { label: 'Device offline', severity: 'offline' },
 }
+
+/**
+ * A sensor's position, for people. The API numbers cables and depths from 0;
+ * the dashboard counts from 1, the way a farmer would, and names depth 1 as
+ * the top of the cable. Every screen uses this one function, so a position
+ * reads the same in the grid, the chart title and the alerts list.
+ */
+export function sensorName(cable: number, depth: number): string {
+  return `Cable ${cable + 1}, depth ${depth + 1}${depth === 0 ? ' (top)' : ''}`
+}
+
+/** One decimal place, as the backend stores readings. */
+export function formatNumber(value: number): string {
+  return value.toFixed(1)
+}
