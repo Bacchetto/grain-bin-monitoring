@@ -28,6 +28,8 @@
  *       switched off in tests.</li>
  *   <li>{@link com.grainbin.telemetry.alerts.ScheduledJobLock} -- one instance
  *       at a time per job, by PostgreSQL advisory lock.</li>
+ *   <li>{@link com.grainbin.telemetry.alerts.AlertController} -- listing and
+ *       acknowledging, for the dashboard.</li>
  * </ul>
  *
  * <h2>De-duplication: two rules, not one</h2>

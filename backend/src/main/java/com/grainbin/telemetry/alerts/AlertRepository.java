@@ -4,8 +4,11 @@ import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Repository;
 
 import java.math.BigDecimal;
+import java.sql.ResultSet;
+import java.sql.SQLException;
 import java.time.Instant;
 import java.time.OffsetDateTime;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
@@ -213,6 +216,114 @@ public class AlertRepository {
 						rs.getInt("cable_index"),
 						rs.getInt("depth_index")))
 				.list();
+	}
+
+	// -----------------------------------------------------------------------
+	// the alerts API
+	// -----------------------------------------------------------------------
+
+	/*
+	 * The device join is only for DEVICE_OFFLINE, to report when the device
+	 * was last heard from. Sensor alerts have no device_id, so the LEFT JOIN
+	 * finds nothing for them.
+	 */
+	private static final String SELECT_ALERTS = """
+			SELECT a.id, a.bin_id, b.name AS bin_name, a.type, a.status,
+			       a.cable_index, a.depth_index, a.device_id, d.last_seen_at AS device_last_seen_at,
+			       a.trigger_value, a.threshold_value,
+			       a.first_detected_at, a.last_detected_at, a.acknowledged_at, a.resolved_at
+			FROM alerts a
+			JOIN bins b ON b.id = a.bin_id
+			LEFT JOIN devices d ON d.id = a.device_id
+			""";
+
+	/**
+	 * Alerts in any of {@code statuses}, optionally for one bin, newest
+	 * detection first.
+	 *
+	 * <p>The bin condition is appended only when a bin is given, rather than
+	 * written as {@code (:binId IS NULL OR a.bin_id = :binId)}. The PostgreSQL
+	 * driver cannot infer a type for a parameter that is only ever compared
+	 * with NULL, and a query that is always the same shape also plans better.
+	 * The appended text is fixed; the value is still a bound parameter.
+	 */
+	public List<AlertResponse> find(Collection<AlertStatus> statuses, Long binId, int limit) {
+		String sql = SELECT_ALERTS
+				+ " WHERE a.status IN (:statuses)"
+				+ (binId == null ? "" : " AND a.bin_id = :binId")
+				// id as a tiebreaker, so rows detected in the same instant come
+				// back in a stable order between requests.
+				+ " ORDER BY a.last_detected_at DESC, a.id DESC LIMIT :limit";
+
+		var query = this.jdbc.sql(sql)
+				.param("statuses", statuses.stream().map(AlertStatus::name).toList())
+				.param("limit", limit);
+		if (binId != null) {
+			query = query.param("binId", binId);
+		}
+		return query.query(AlertRepository::toResponse).list();
+	}
+
+	public Optional<AlertResponse> findById(long alertId) {
+		return this.jdbc.sql(SELECT_ALERTS + " WHERE a.id = ?")
+				.param(alertId)
+				.query(AlertRepository::toResponse)
+				.optional();
+	}
+
+	/** An alert that has just moved from OPEN to ACKNOWLEDGED. */
+	public record Acknowledgement(long alertId, long binId, Long deviceId, AlertType type) {
+	}
+
+	/**
+	 * Moves an OPEN alert to ACKNOWLEDGED. Status and timestamp change in one
+	 * statement, as the lifecycle CHECK constraints require.
+	 *
+	 * <p>The {@code status = 'OPEN'} condition makes this a compare-and-set:
+	 * of two concurrent acknowledgements, exactly one updates the row, so the
+	 * transition is reported once. So does an evaluator resolving the alert at
+	 * the same moment -- the acknowledgement then finds nothing to update.
+	 *
+	 * @return empty if the alert does not exist or is not OPEN
+	 */
+	public Optional<Acknowledgement> acknowledge(long alertId, Instant at) {
+		return this.jdbc.sql("""
+				UPDATE alerts SET status = 'ACKNOWLEDGED', acknowledged_at = ?
+				WHERE id = ? AND status = 'OPEN'
+				RETURNING id, bin_id, device_id, type
+				""")
+				.param(utc(at))
+				.param(alertId)
+				.query((rs, rowNum) -> new Acknowledgement(
+						rs.getLong("id"),
+						rs.getLong("bin_id"),
+						rs.getObject("device_id", Long.class),
+						AlertType.valueOf(rs.getString("type"))))
+				.optional();
+	}
+
+	private static AlertResponse toResponse(ResultSet rs, int rowNum) throws SQLException {
+		return new AlertResponse(
+				rs.getLong("id"),
+				rs.getLong("bin_id"),
+				rs.getString("bin_name"),
+				AlertType.valueOf(rs.getString("type")),
+				AlertStatus.valueOf(rs.getString("status")),
+				rs.getObject("cable_index", Integer.class),
+				rs.getObject("depth_index", Integer.class),
+				rs.getObject("device_id", Long.class),
+				instantOrNull(rs, "device_last_seen_at"),
+				rs.getBigDecimal("trigger_value"),
+				rs.getBigDecimal("threshold_value"),
+				instantOrNull(rs, "first_detected_at"),
+				instantOrNull(rs, "last_detected_at"),
+				instantOrNull(rs, "acknowledged_at"),
+				instantOrNull(rs, "resolved_at"));
+	}
+
+	private static Instant instantOrNull(ResultSet rs, String column) throws SQLException {
+		OffsetDateTime value = rs.getObject(column, OffsetDateTime.class);
+		return (value == null) ? null : value.toInstant();
 	}
 
 	private static OffsetDateTime utc(Instant instant) {

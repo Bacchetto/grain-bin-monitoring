@@ -51,6 +51,22 @@ public class AlertLifecycle {
 	}
 
 	/**
+	 * Someone has seen the alert. Only an OPEN alert can be acknowledged;
+	 * the transition is reported only when this call made it.
+	 *
+	 * @return whether this call moved the alert to ACKNOWLEDGED
+	 */
+	public boolean acknowledge(long alertId, Instant at) {
+		return this.alerts.acknowledge(alertId, at)
+				.map(ack -> {
+					this.transitions.report(ack.alertId(), ack.binId(), ack.type(), AlertStatus.ACKNOWLEDGED,
+							ack.deviceId());
+					return true;
+				})
+				.orElse(false);
+	}
+
+	/**
 	 * An open or acknowledged alert's condition was clear in this
 	 * evaluation. Resolves it once that has happened
 	 * {@value AlertRepository#CLEAR_EVALUATIONS_TO_RESOLVE} times in a row.
