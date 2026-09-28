@@ -62,11 +62,14 @@ public class AlertTransitions {
 	public void report(long alertId, long binId, AlertType type, AlertStatus toState, Long deviceId) {
 		Runnable report = () -> {
 			this.counters.get(type).get(toState).increment();
-			// Key-value pairs, not string formatting: with structured logging
-			// on, each one becomes its own JSON field, so a log query can
-			// filter on alertId or type without parsing a message.
+			// Key-value pairs: with structured logging on, each one becomes its
+			// own JSON field, so a log query can filter on alertId or type
+			// without parsing a message. The message repeats the essentials
+			// because the plain-text format of the local profile prints only
+			// the message -- found by reading the log of a live run, where
+			// every line said just "Alert transition".
 			var event = log.atInfo()
-					.setMessage("Alert transition")
+					.setMessage("Alert " + alertId + " " + type + " on bin " + binId + " -> " + toState)
 					.addKeyValue("alertId", alertId)
 					.addKeyValue("binId", binId)
 					.addKeyValue("alertType", type.name())
