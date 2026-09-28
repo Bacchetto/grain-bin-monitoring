@@ -1,0 +1,183 @@
+/* Colours are defined once as variables, then redefined for dark mode, so no
+   rule below needs to know which theme is active. */
+:root {
+  --bg: #ffffff;
+  --surface: #f6f7f9;
+  --text: #1c2127;
+  --muted: #5c6773;
+  --border: #d8dde3;
+  --link: #1f5fbf;
+
+  /* Status colours. Each pairs a background with a text colour chosen for
+     contrast; the badge text always names the status too, so colour is never
+     the only signal. */
+  --ok-bg: #e3f4e8;
+  --ok-text: #1b6b34;
+  --critical-bg: #fde4e1;
+  --critical-text: #a61b0f;
+  --warning-bg: #fff1d6;
+  --warning-text: #8a5300;
+  --offline-bg: #e8eaee;
+  --offline-text: #414b57;
+
+  font-family: system-ui, 'Segoe UI', Roboto, sans-serif;
+  line-height: 1.5;
+  color-scheme: light dark;
+  color: var(--text);
+  background: var(--bg);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #14171b;
+    --surface: #1d2127;
+    --text: #e6e9ed;
+    --muted: #9aa5b1;
+    --border: #333a43;
+    --link: #7fb0ff;
+
+    --ok-bg: #173522;
+    --ok-text: #8fe0a8;
+    --critical-bg: #45191a;
+    --critical-text: #ffaaa1;
+    --warning-bg: #40300f;
+    --warning-text: #ffd27d;
+    --offline-bg: #2b3139;
+    --offline-text: #c3cbd4;
+  }
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+}
+
+a {
+  color: var(--link);
+}
+
+main {
+  padding: 1.25rem 1rem;
+  max-width: 72rem;
+  margin: 0 auto;
+}
+
+button {
+  font: inherit;
+  padding: 0.35rem 0.9rem;
+  border: 1px solid var(--border);
+  border-radius: 0.4rem;
+  background: var(--surface);
+  color: var(--text);
+  cursor: pointer;
+}
+
+button:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.error {
+  color: var(--critical-text);
+}
+
+.notice {
+  padding: 0.5rem 0.75rem;
+  border-radius: 0.4rem;
+  background: var(--warning-bg);
+  color: var(--warning-text);
+}
+
+.hint {
+  color: var(--muted);
+  font-size: 0.875rem;
+}
+
+/* --- header ------------------------------------------------------------- */
+
+.app-header {
+  display: flex;
+  align-items: center;
+  gap: 1.5rem;
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.app-header .brand {
+  font-weight: 600;
+  color: var(--text);
+  text-decoration: none;
+}
+
+.app-header nav {
+  display: flex;
+  gap: 1rem;
+  flex: 1;
+}
+
+/* --- login -------------------------------------------------------------- */
+
+.login {
+  max-width: 24rem;
+  margin-top: 4rem;
+}
+
+.login form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.login input {
+  font: inherit;
+  padding: 0.45rem 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: 0.4rem;
+  background: var(--bg);
+  color: var(--text);
+}
+
+/* --- bin list ----------------------------------------------------------- */
+
+/* A wide table scrolls sideways inside its box on a phone, rather than
+   making the whole page scroll. */
+.bins {
+  display: block;
+  overflow-x: auto;
+  border-collapse: collapse;
+  width: 100%;
+}
+
+.bins th,
+.bins td {
+  text-align: left;
+  padding: 0.5rem 0.75rem;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+
+.bins th {
+  color: var(--muted);
+  font-weight: 500;
+}
+
+/* --- status badges ------------------------------------------------------ */
+
+.badge {
+  display: inline-block;
+  padding: 0.1rem 0.55rem;
+  border-radius: 999px;
+  font-size: 0.875rem;
+  font-weight: 500;
+}
+
+.badge-ok { background: var(--ok-bg); color: var(--ok-text); }
+.badge-critical { background: var(--critical-bg); color: var(--critical-text); }
+.badge-warning { background: var(--warning-bg); color: var(--warning-text); }
+.badge-offline { background: var(--offline-bg); color: var(--offline-text); }
+
+.badge-more {
+  font-weight: 400;
+  opacity: 0.8;
+}

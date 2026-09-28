@@ -229,6 +229,12 @@ Built with Vite + React + TypeScript and strict mode on. Keep it small and funct
 - **Login screen:** prompts for the admin token. Keep the token in memory only and never write it to `localStorage`.
 - Typed API client in `frontend/src/api/`, with types that mirror the backend DTOs.
 
+**Built so far:** the login screen, the bin list (refreshing every 30 seconds), and the typed API client. The bin detail page and the alerts view come next in Milestone 2.
+
+- **Libraries:** React Router for pages and TanStack Query for fetching and caching. The token and the query cache live together, so signing out -- or being signed out by a `401` from any request -- also empties the cache. Tests use Vitest and React Testing Library, with `fetch` replaced by a fake that answers like the API.
+- **The token is checked before it is accepted**, by listing bins with it, so a mistyped token fails on the login screen with a clear message. Reloading the page asks for it again: that is the cost of keeping it in memory only.
+- **API URL:** `VITE_API_URL`, default `http://localhost:8080`. Vite reads it from the environment or a `frontend/.env.local` file at build time. The API must list the dashboard's origin in `CORS_ALLOWED_ORIGINS`; `.env.example` already has `http://localhost:5173`.
+
 ---
 
 ## Repository layout
@@ -275,6 +281,10 @@ Organize backend packages by feature (`ingest`, `alerts`, `bins`), not by layer.
   the API.
 - **Simulator:** `python -m venv simulator/.venv`, activate it, then
   `pip install -r simulator/requirements-dev.txt`.
+- **Front end:** Node.js 24 LTS, then `cd frontend && npm install`. The dev
+  server watches files by polling, because native file watching fails on the
+  network drive this repository is developed on. On a local disk, set
+  `VITE_NATIVE_WATCH=true` for the faster native watcher.
 
 ### Running it
 
@@ -292,8 +302,10 @@ python simulator/sim.py --scenario offline --bins 1   # 5 samples, then silence:
 To see scheduled alerts sooner, start the API with shorter checks:
 `APP_ALERTS_RATE_OF_RISE_CHECK_INTERVAL=5s APP_ALERTS_OFFLINE_CHECK_INTERVAL=5s ./mvnw spring-boot:run`.
 
-Still to come: Prometheus and Grafana in Compose, and the front end
-(`cd frontend && npm install && npm run dev`, UI on :5173), later in Milestone 2.
+The dashboard: `cd frontend && npm run dev`, then open http://localhost:5173 and
+sign in with the `ADMIN_TOKEN` from `.env`.
+
+Still to come: Prometheus and Grafana in Compose, later in Milestone 2.
 `docker compose up` running everything, including the API container, arrives in
 Milestone 3 with the Dockerfile.
 
