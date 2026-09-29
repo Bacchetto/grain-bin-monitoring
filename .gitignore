@@ -47,6 +47,9 @@ venv/
 *.tfstate
 *.tfstate.*
 crash.log
+# Saved plans (terraform plan -out). They hold every value the apply will
+# set, in readable form -- including generated secrets such as ADMIN_TOKEN.
+*.tfplan
 *.tfvars
 !*.tfvars.example
 # Note: .terraform.lock.hcl IS committed -- it pins provider versions so CI

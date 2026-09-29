@@ -120,5 +120,32 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-  # terraform fmt and validate join this workflow once infra/ exists
-  # (Milestone 3 Phases 3 and 4).
+  terraform:
+    name: Terraform (fmt, validate)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: '1.16.2'
+
+      # Formatting is checked across all of infra/ at once. A difference fails
+      # the job; `terraform fmt -recursive infra` fixes it locally.
+      - run: terraform fmt -check -recursive infra
+
+      # validate checks each configuration is internally consistent: types,
+      # references, required arguments. It needs the providers but NOT AWS
+      # credentials, and -backend=false skips connecting to the state bucket,
+      # so this job never touches AWS. (terraform plan, which does, runs in
+      # plan.yml.)
+      - name: Validate each configuration
+        run: |
+          for dir in infra/bootstrap infra/terraform; do
+            [ -d "$dir" ] || continue
+            echo "::group::$dir"
+            terraform -chdir="$dir" init -backend=false -input=false
+            terraform -chdir="$dir" validate
+            echo "::endgroup::"
+          done
