@@ -1,0 +1,14 @@
+# Copy to terraform.tfvars (git-ignored) and fill in. Everything else has a
+# default in variables.tf.
+
+# Where alarms and budget alerts go. Confirm the SNS subscription email AWS
+# sends after the first apply.
+alert_email = "you@example.com"
+
+# Monthly cost budget in USD.
+monthly_budget_usd = 25
+
+# Optional custom domain. Leave both empty to use the *.cloudfront.net address.
+# The certificate must be issued by ACM in us-east-1.
+# domain_name         = "grain.example.com"
+# acm_certificate_arn = "arn:aws:acm:us-east-1:123456789012:certificate/..."
