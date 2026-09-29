@@ -13,9 +13,10 @@
 #   Prometheus: http://localhost:9090   (Status > Targets shows whether the
 #                                        API is being scraped)
 #
-# The API container joins in Milestone 3 once the Dockerfile exists. Until
-# then the API runs on the host, and Prometheus reaches it from its container:
-#   cd backend && ./mvnw spring-boot:run
+# The API itself runs one of two ways -- never both, as both use port 8080:
+#   cd backend && ./mvnw spring-boot:run      on the host, for development
+#   docker compose --profile api up -d        as the production image
+# Prometheus scrapes whichever is running, as host.docker.internal:8080.
 #
 # Values come from .env in this directory, which Compose reads automatically,
 # falling back to the defaults below. Those defaults match the ones in
@@ -46,6 +47,32 @@ services:
       interval: 5s
       timeout: 3s
       retries: 10
+
+  api:
+    # The production image from backend/Dockerfile. Behind a profile, so a
+    # plain `docker compose up` still leaves port 8080 free for the host-run
+    # API; `--profile api` adds it.
+    profiles: ["api"]
+    build: ./backend
+    depends_on:
+      db:
+        # Wait for PostgreSQL to accept connections, not merely to start:
+        # Flyway runs as the API starts and needs the database immediately.
+        condition: service_healthy
+    environment:
+      # Inside the Compose network the database is the `db` service, not
+      # localhost.
+      DB_URL: jdbc:postgresql://db:5432/grain
+      DB_USER: ${DB_USER:-grain}
+      DB_PASSWORD: ${DB_PASSWORD:-grain}
+      # No fallback: the API refuses to start without a token, which is the
+      # point (ADR 0003). It comes from .env.
+      ADMIN_TOKEN: ${ADMIN_TOKEN}
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-}
+    ports:
+      # The same port the host-run API uses, so the dashboard, the simulator
+      # and Prometheus find it without any change.
+      - "127.0.0.1:8080:8080"
 
   prometheus:
     # Prometheus with ops/prometheus/prometheus.yml built in; the base image

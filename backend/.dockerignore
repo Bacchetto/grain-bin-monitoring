@@ -1,0 +1,23 @@
+# What the Docker build never needs to see. Everything else in backend/ is
+# sent to the Docker engine as the build context, so this keeps that small and
+# keeps anything sensitive out of it.
+
+# Build output: the image builds its own.
+target/
+
+# Local configuration and anything that might hold a secret.
+.env
+.env.*
+
+# IDE and OS files.
+.idea/
+*.iml
+.vscode/
+.settings/
+.project
+.classpath
+.DS_Store
+Thumbs.db
+
+# Logs.
+*.log
