@@ -1,18 +1,36 @@
 # Results
 
-> **Status: no measurements recorded yet.** Numbers land here as the
-> milestones that produce them are completed. Every figure must carry the date
-> and the environment it was measured in, because a number without those is
-> not quotable.
+> Numbers land here as the milestones that produce them are completed. Every
+> figure carries the date and the environment it was measured in, because a
+> number without those is not quotable. Still to come: the load tests
+> (Milestone 4).
 
 ## Container image size
 
-*(Milestone 3.)* Target is under 250 MB. Record the actual size, the base
-image tag, and the date.
+Target: under 250 MB (README).
 
-| Date | Image tag | Size | Notes |
-|---|---|---|---|
-| — | — | — | Not yet built. |
+| Date | Base image | Uncompressed | Compressed | Notes |
+|---|---|---|---|---|
+| 2026-09-29 | `eclipse-temurin:21.0.12_8-jre-alpine` | **239.6 MB** | 100.7 MB | First production build, `backend/Dockerfile` |
+
+**How it was measured.** *Uncompressed* is the sum of every layer after
+decompression, from `docker save` -- the size the image occupies once
+unpacked, and the figure the target refers to. *Compressed* is what a
+registry stores and what each ECS task downloads.
+
+Beware the number `docker image ls` prints under Rancher Desktop: it showed
+**344 MB**, because its image store reports the compressed content and the
+unpacked copy added together.
+
+**Where the size goes.** The Temurin JRE is 165 MB and Alpine's packages and
+base another 47 MB. The application adds 31 MB: 29.6 MB of dependency jars,
+0.7 MB of Spring Boot's loader, and **0.6 MB of the project's own code** -- the
+only layer a normal code change rebuilds, so a deploy ships under a megabyte of
+new image.
+
+The margin under 250 MB is small and almost all of it is the JRE. A runtime
+trimmed with `jlink` to the modules the application uses would roughly halve
+the image; see enhancement E16.
 
 ## Load test: local
 

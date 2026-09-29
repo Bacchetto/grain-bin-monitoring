@@ -24,6 +24,7 @@ milestone; if it is rejected, it stays here marked as such, with the reason.
 | E13 | [Faster `latest` for dense bins](#e13) | Query performance | Proposed -- only if bins get dense |
 | E14 | [Daily buckets in the site's local time](#e14) | Query API, dashboard | Proposed |
 | E15 | [Keep the metrics endpoint off the public internet](#e15) | Security, operations | Proposed -- **must be settled in Milestone 3** |
+| E16 | [A smaller runtime image with jlink](#e16) | Containers | Proposed |
 
 ---
 
@@ -376,3 +377,30 @@ only the VPC can reach (`management.server.port`), rather than adding
 credentials to a public path.
 
 **Related.** E10 (production-grade admin authentication).
+
+---
+
+<a id="e16"></a>
+## E16 - A smaller runtime image with jlink
+
+**Raised:** Milestone 3 Phase 1
+
+**Today.** The production image is 239.6 MB uncompressed against a 250 MB
+target (`docs/results.md`). 165 MB of that is the full Temurin JRE, most of
+which the application never loads -- desktop, scripting and CORBA-era modules
+included.
+
+**The idea.** In the build stage, run `jdeps` over the application's jars to
+list the Java modules it actually uses, then `jlink` a runtime containing only
+those, and copy that into a bare Alpine image instead of the JRE image.
+Typical results for a Spring Boot service are a 60-90 MB runtime, roughly
+halving the image.
+
+**Things to get right.**
+
+- `jdeps` misses modules reached only by reflection, so the list needs a
+  startup-and-smoke test in CI, not trust. `jdk.crypto.ec` (TLS) and
+  `java.management` (JMX, Micrometer) are the usual omissions.
+- The base image then has no JRE of its own to patch: JDK security updates
+  arrive only by rebuilding, which a pinned-digest workflow would need to
+  schedule.

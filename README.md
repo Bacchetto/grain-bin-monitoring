@@ -309,6 +309,12 @@ python simulator/sim.py --scenario offline --bins 1   # 5 samples, then silence:
 To see scheduled alerts sooner, start the API with shorter checks:
 `APP_ALERTS_RATE_OF_RISE_CHECK_INTERVAL=5s APP_ALERTS_OFFLINE_CHECK_INTERVAL=5s ./mvnw spring-boot:run`.
 
+**The production image, locally:** instead of `./mvnw spring-boot:run`, run
+`docker compose --profile api up -d --build`. It builds `backend/Dockerfile` and
+runs it on the same port, 8080, against the Compose database, so the
+dashboard, the simulator and Prometheus need no change. Run one or the other,
+not both. Its logs are JSON, as in production: `docker compose logs -f api`.
+
 The dashboard: `cd frontend && npm run dev`, then open http://localhost:5173 and
 sign in with the `ADMIN_TOKEN` from `.env`.
 
@@ -411,7 +417,7 @@ Work in order. Each milestone ends with every check above passing and a short su
 - [x] Prometheus and Grafana in Compose, with a provisioned dashboard for ingest rate, latency, and alert transitions
 
 ### Milestone 3: Containers, CI/CD, AWS (week 3)
-- [ ] Production Dockerfile meeting the requirements above
+- [x] Production Dockerfile meeting the requirements above -- 239.6 MB, see [docs/results.md](docs/results.md)
 - [ ] `ci.yml` green on a pull request
 - [ ] Terraform bootstrap and main stack. `budgets.tf` is applied first.
 - [ ] GitHub OIDC role, plus `plan.yml` and `deploy.yml`
