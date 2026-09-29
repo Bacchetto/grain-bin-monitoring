@@ -451,3 +451,4 @@ Every part of this project should be explainable by the people working on it. Op
 8. **Do not run `terraform apply` or `terraform destroy`,** and do not create any AWS resources. Write the code and run `fmt`, `validate`, and `plan` only. The owner applies changes manually until the pipeline is trusted.
 9. **Keep this README current.** Tick milestone checkboxes as items land, and update any section that the implementation changes.
 10. **Ask when a spec detail is ambiguous** rather than guessing. For small details, pick the simplest reasonable option and note it in the milestone summary.
+11. **Branches and pull requests.** Push feature branches and open pull requests freely, without asking first. **Pushing to `main`, or merging anything into `main`, always needs the owner's explicit approval, every time** -- a push to `main` runs `deploy.yml`, and merging is the owner's review.

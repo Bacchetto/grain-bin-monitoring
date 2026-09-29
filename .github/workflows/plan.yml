@@ -1,0 +1,142 @@
+# Terraform plan on pull requests that change infrastructure, posted as a PR
+# comment -- so a reviewer sees exactly what a merge would change in AWS
+# before approving it. It never applies anything: the role it uses is
+# read-only (infra/terraform/iam_github_oidc.tf).
+name: Terraform plan
+
+on:
+  pull_request:
+    paths:
+      - 'infra/terraform/**'
+      - '.github/workflows/plan.yml'
+
+permissions:
+  contents: read
+  # Lets the job request a GitHub OIDC token, which AWS exchanges for the
+  # plan role's temporary credentials. No AWS keys are stored anywhere.
+  id-token: write
+  # To post the plan as a comment.
+  pull-requests: write
+
+# One plan at a time per PR; a newer push supersedes an older run.
+concurrency:
+  group: plan-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+env:
+  AWS_REGION: ca-central-1
+  TF_IN_AUTOMATION: 'true'
+  # Inputs without defaults, from repository settings (see infra/README.md).
+  TF_VAR_alert_email: ${{ secrets.ALERT_EMAIL }}
+
+jobs:
+  plan:
+    name: terraform plan
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # Until the stack's first apply creates the plan role and its ARN is
+    # saved as a repository variable, there is nothing to plan with.
+    if: vars.AWS_PLAN_ROLE_ARN != ''
+    defaults:
+      run:
+        working-directory: infra/terraform
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: '1.16.2'
+          # Plain output, so the plan text can be captured for the comment.
+          terraform_wrapper: false
+
+      - uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ vars.AWS_PLAN_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - run: terraform init -input=false
+
+      # Plan against what is actually running. The image tag and task count
+      # are set by deploy.yml, not by the code; planning with the defaults
+      # instead would show every PR "changing" the service back to them.
+      - name: Read the deployed image tag and task count
+        id: deployed
+        run: |
+          service=$(aws ecs describe-services --cluster grain-bin --services grain-bin-api \
+            --query 'services[?status==`ACTIVE`] | [0]' --output json 2>/dev/null || echo null)
+          if [ "$service" = "null" ] || [ -z "$service" ]; then
+            echo "No service deployed yet; planning with the defaults."
+            exit 0
+          fi
+          count=$(echo "$service" | jq -r '.desiredCount')
+          taskdef=$(echo "$service" | jq -r '.taskDefinition')
+          image=$(aws ecs describe-task-definition --task-definition "$taskdef" \
+            --query 'taskDefinition.containerDefinitions[0].image' --output text)
+          echo "desired_count=$count" >> "$GITHUB_OUTPUT"
+          echo "image_tag=${image##*:}" >> "$GITHUB_OUTPUT"
+          echo "Deployed: ${image##*:}, $count task(s)"
+
+      - name: terraform plan
+        id: plan
+        # Keep going on failure, so the error is posted to the PR too; the
+        # last step fails the job afterwards.
+        continue-on-error: true
+        run: |
+          # GitHub runs steps with `bash -e`, which would exit on a failed
+          # plan before its exit code could be recorded below.
+          set +e
+          args=(-input=false -no-color)
+          [ -n "${{ steps.deployed.outputs.image_tag }}" ] && args+=(-var "image_tag=${{ steps.deployed.outputs.image_tag }}")
+          [ -n "${{ steps.deployed.outputs.desired_count }}" ] && args+=(-var "desired_count=${{ steps.deployed.outputs.desired_count }}")
+          terraform plan "${args[@]}" > plan.txt 2>&1
+          status=$?
+          cat plan.txt
+          exit $status
+
+      # One comment per PR, updated in place on every push rather than
+      # piling up a new comment each time.
+      - name: Post the plan to the pull request
+        uses: actions/github-script@v9
+        env:
+          PLAN_OUTCOME: ${{ steps.plan.outcome }}
+        with:
+          script: |
+            const fs = require('fs');
+            const marker = '<!-- terraform-plan -->';
+            let plan = fs.readFileSync('infra/terraform/plan.txt', 'utf8');
+            // A GitHub comment holds 65,536 characters; keep the end, which
+            // has the summary line.
+            const limit = 60000;
+            if (plan.length > limit) {
+              plan = '... (truncated -- the full plan is in the workflow log)\n' + plan.slice(-limit);
+            }
+            const summary = (plan.match(/^(Plan:.*|No changes\..*)$/m) || ['(no summary line -- see below)'])[0];
+            const ok = process.env.PLAN_OUTCOME === 'success';
+            const body = [
+              marker,
+              `### Terraform plan ${ok ? '✅' : '❌ failed'}`,
+              `**${summary}**`,
+              '',
+              `Commit ${context.sha.slice(0, 7)}. Nothing is applied until this merges and the deploy is approved.`,
+              '',
+              '<details><summary>Full plan</summary>',
+              '',
+              '```',
+              plan,
+              '```',
+              '</details>',
+            ].join('\n');
+
+            const { owner, repo } = context.repo;
+            const issue_number = context.issue.number;
+            const comments = await github.paginate(github.rest.issues.listComments, { owner, repo, issue_number });
+            const existing = comments.find(c => c.body.includes(marker));
+            if (existing) {
+              await github.rest.issues.updateComment({ owner, repo, comment_id: existing.id, body });
+            } else {
+              await github.rest.issues.createComment({ owner, repo, issue_number, body });
+            }
+
+      - name: Fail if the plan failed
+        if: steps.plan.outcome != 'success'
+        run: exit 1

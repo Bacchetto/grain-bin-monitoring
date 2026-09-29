@@ -1,0 +1,182 @@
+# Deploy: after CI passes on main, build and ship everything to AWS.
+#
+#   1. build the API image and push it to ECR, tagged with the commit SHA
+#   2. terraform apply, pointing the ECS task at that image
+#   3. force a new ECS deployment and wait for it to become healthy
+#   4. build the dashboard and sync it to S3
+#   5. invalidate CloudFront's cache so viewers get the new dashboard
+#
+# NOTHING RUNS WITHOUT THE OWNER'S APPROVAL. The job uses the GitHub
+# environment `production`, which is configured to require a named reviewer:
+# GitHub pauses the run before the job starts and waits for someone to click
+# Approve. The deploy role's trust policy accepts only jobs in that
+# environment (infra/terraform/iam_github_oidc.tf), so this gate cannot be
+# skipped by editing the workflow.
+name: Deploy
+
+on:
+  # Runs when the CI workflow finishes, not on the push itself: nothing is
+  # deployed that has not passed every check.
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+
+permissions:
+  contents: read
+  id-token: write
+
+# One deploy at a time, and never cancelled halfway: a cancelled apply can
+# leave Terraform's state lock held and resources half-changed.
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+env:
+  AWS_REGION: ca-central-1
+  TF_IN_AUTOMATION: 'true'
+  TF_VAR_alert_email: ${{ secrets.ALERT_EMAIL }}
+  # The exact commit CI checked, not whatever main points to by now.
+  SHA: ${{ github.event.workflow_run.head_sha }}
+
+jobs:
+  deploy:
+    name: Deploy to AWS
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    # Only a successful CI run for a push to main -- not a failed run, and
+    # not a pull request's run.
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
+      vars.AWS_DEPLOY_ROLE_ARN != ''
+    environment:
+      name: production
+      url: ${{ steps.urls.outputs.site }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ env.SHA }}
+
+      - uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: '1.16.2'
+          terraform_wrapper: false
+
+      - name: terraform init
+        working-directory: infra/terraform
+        run: terraform init -input=false
+
+      - name: Read the stack's outputs
+        id: stack
+        working-directory: infra/terraform
+        run: |
+          for name in ecr_repository_url ecs_cluster_name ecs_service_name frontend_bucket cloudfront_distribution_id site_url; do
+            echo "$name=$(terraform output -raw $name)" >> "$GITHUB_OUTPUT"
+          done
+
+      # ---------------------------------------------------------------------
+      # 1. The image
+      # ---------------------------------------------------------------------
+
+      - name: Log in to ECR
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - uses: docker/setup-buildx-action@v4
+
+      # Tags are immutable in ECR, so a re-run for the same commit cannot push
+      # again -- and does not need to: the image for this SHA is already there.
+      - name: Is this commit's image already in ECR?
+        id: image
+        run: |
+          if aws ecr describe-images --repository-name "${ECR_URL##*/}" --image-ids imageTag="$SHA" >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+            echo "Image $SHA is already in ECR; not rebuilding."
+          fi
+        env:
+          ECR_URL: ${{ steps.stack.outputs.ecr_repository_url }}
+
+      - name: Build and push the API image
+        if: steps.image.outputs.exists != 'true'
+        uses: docker/build-push-action@v7
+        with:
+          context: backend
+          push: true
+          tags: ${{ steps.stack.outputs.ecr_repository_url }}:${{ env.SHA }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # ---------------------------------------------------------------------
+      # 2-3. The infrastructure and the service
+      # ---------------------------------------------------------------------
+
+      # Applies the code as merged -- including any infrastructure change the
+      # PR's plan comment showed -- with the task pointed at the new image.
+      # -auto-approve because the approval already happened: at the
+      # environment gate, after the plan was reviewed on the PR.
+      - name: terraform apply
+        working-directory: infra/terraform
+        run: terraform apply -input=false -auto-approve -var "image_tag=$SHA" -var desired_count=1
+
+      # Starts replacement tasks even if the task definition did not change
+      # (a re-run, or a restart to pick up a rotated secret).
+      - name: Roll the ECS service
+        run: |
+          aws ecs update-service --cluster "$CLUSTER" --service "$SERVICE" --force-new-deployment >/dev/null
+          echo "Waiting for the new task to pass its health checks..."
+          aws ecs wait services-stable --cluster "$CLUSTER" --services "$SERVICE"
+        env:
+          CLUSTER: ${{ steps.stack.outputs.ecs_cluster_name }}
+          SERVICE: ${{ steps.stack.outputs.ecs_service_name }}
+
+      # ---------------------------------------------------------------------
+      # 4-5. The dashboard
+      # ---------------------------------------------------------------------
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      # VITE_API_URL empty: the dashboard calls /api/v1 on its own address,
+      # which CloudFront routes to the API. Same origin, so no CORS.
+      - name: Build the dashboard
+        working-directory: frontend
+        run: |
+          npm ci
+          VITE_API_URL= npm run build
+
+      # Two passes, because the two kinds of file age differently:
+      #   - assets/ files have a content hash in their names, so a new build
+      #     gets new names; they can be cached for a year.
+      #   - index.html keeps its name and points at the current assets, so
+      #     browsers must always check for a new one.
+      - name: Upload the dashboard to S3
+        working-directory: frontend
+        run: |
+          aws s3 sync dist "s3://$BUCKET" --delete --exclude index.html \
+            --cache-control "public, max-age=31536000, immutable"
+          aws s3 cp dist/index.html "s3://$BUCKET/index.html" \
+            --cache-control "no-cache"
+        env:
+          BUCKET: ${{ steps.stack.outputs.frontend_bucket }}
+
+      # CloudFront's edge caches may still hold the previous index.html.
+      - name: Invalidate CloudFront
+        run: aws cloudfront create-invalidation --distribution-id "$DISTRIBUTION" --paths "/*" >/dev/null
+        env:
+          DISTRIBUTION: ${{ steps.stack.outputs.cloudfront_distribution_id }}
+
+      - name: Done
+        id: urls
+        run: |
+          echo "site=$SITE" >> "$GITHUB_OUTPUT"
+          echo "Deployed $SHA to $SITE"
+        env:
+          SITE: ${{ steps.stack.outputs.site_url }}
