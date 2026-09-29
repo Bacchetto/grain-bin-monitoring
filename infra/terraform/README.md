@@ -79,6 +79,44 @@ aws secretsmanager get-secret-value --secret-id grain-bin/admin-token --query Se
 **To tear it all down:** `terraform destroy`, with the same environment
 variables. The state bucket (bootstrap) is not affected.
 
+## Deploying through GitHub Actions
+
+After the first apply, two workflows take over:
+
+| Workflow | Runs on | Does |
+|---|---|---|
+| `plan.yml` | PRs that change `infra/terraform/` | `terraform plan` with the read-only role; posts the result as a PR comment |
+| `deploy.yml` | CI passing on `main` | **After the owner approves:** build and push the image, `terraform apply`, roll ECS, publish the dashboard, invalidate CloudFront |
+
+They authenticate with GitHub OIDC -- no AWS keys are stored in GitHub. They
+need four settings in the repository, made once after the first apply (the
+role ARNs come from `terraform output`):
+
+| Setting | Kind | Value |
+|---|---|---|
+| `AWS_PLAN_ROLE_ARN` | Variable | `terraform output -raw github_plan_role_arn` |
+| `AWS_DEPLOY_ROLE_ARN` | Variable | `terraform output -raw github_deploy_role_arn` |
+| `ALERT_EMAIL` | Secret | the same address as `alert_email` in `terraform.tfvars` |
+| `production` | Environment | **Required reviewers: the owner.** This is the approval gate |
+
+With the GitHub CLI:
+
+```powershell
+gh variable set AWS_PLAN_ROLE_ARN   --body (terraform output -raw github_plan_role_arn)
+gh variable set AWS_DEPLOY_ROLE_ARN --body (terraform output -raw github_deploy_role_arn)
+gh secret set ALERT_EMAIL                      # prompts for the value
+```
+
+The `production` environment is easiest in the browser: **Settings →
+Environments → New environment → `production` → Required reviewers**, add
+yourself, and restrict **Deployment branches** to `main`.
+
+Until the two variables exist, both workflows skip themselves, so merging
+them before the stack exists is harmless.
+
+**A deploy always runs one task** (`desired_count=1`), which is also how the
+service starts after the first apply's `desired_count=0`.
+
 ## Planning without applying
 
 A read-only role can plan but cannot take the state lock, so read-only plans
