@@ -50,7 +50,8 @@ $env:AWS_PROFILE = "grain-admin"
 $env:TF_DATA_DIR = "$env:LOCALAPPDATA\grain-bin-terraform\main"   # see ADR 0021
 cd infra\terraform
 copy terraform.tfvars.example terraform.tfvars                        # then edit alert_email
-terraform init
+copy backend.hcl.example backend.hcl                                  # then put in the account ID
+terraform init "-backend-config=backend.hcl"   # quoted: PowerShell splits it at the dot otherwise
 
 # 1. The budget first, so the alert exists before anything costs money.
 terraform plan -target="aws_budgets_budget.monthly" -out budget.tfplan
@@ -89,13 +90,14 @@ After the first apply, two workflows take over:
 | `deploy.yml` | CI passing on `main` | **After the owner approves:** build and push the image, `terraform apply`, roll ECS, publish the dashboard, invalidate CloudFront |
 
 They authenticate with GitHub OIDC -- no AWS keys are stored in GitHub. They
-need four settings in the repository, made once after the first apply (the
+need five settings in the repository, made once after the first apply (the
 role ARNs come from `terraform output`):
 
 | Setting | Kind | Value |
 |---|---|---|
 | `AWS_PLAN_ROLE_ARN` | Variable | `terraform output -raw github_plan_role_arn` |
 | `AWS_DEPLOY_ROLE_ARN` | Variable | `terraform output -raw github_deploy_role_arn` |
+| `TF_STATE_BUCKET` | Variable | the state bucket's name, as in `backend.hcl` |
 | `ALERT_EMAIL` | Secret | the same address as `alert_email` in `terraform.tfvars` |
 | `production` | Environment | **Required reviewers: the owner.** This is the approval gate |
 
@@ -104,6 +106,7 @@ With the GitHub CLI:
 ```powershell
 gh variable set AWS_PLAN_ROLE_ARN   --body (terraform output -raw github_plan_role_arn)
 gh variable set AWS_DEPLOY_ROLE_ARN --body (terraform output -raw github_deploy_role_arn)
+gh variable set TF_STATE_BUCKET     --body grain-bin-tfstate-<ACCOUNT_ID>-ca-central-1
 gh secret set ALERT_EMAIL                      # prompts for the value
 ```
 
@@ -111,7 +114,7 @@ The `production` environment is easiest in the browser: **Settings →
 Environments → New environment → `production` → Required reviewers**, add
 yourself, and restrict **Deployment branches** to `main`.
 
-Until the two variables exist, both workflows skip themselves, so merging
+Until the role variables exist, both workflows skip themselves, so merging
 them before the stack exists is harmless.
 
 **A deploy always runs one task** (`desired_count=1`), which is also how the

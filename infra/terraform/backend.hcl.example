@@ -1,0 +1,6 @@
+# Copy to backend.hcl (git-ignored) and fill in the account ID, then:
+#   terraform init "-backend-config=backend.hcl"   (quoted, for PowerShell)
+#
+# The bucket is the one infra/bootstrap created; `terraform output state_bucket`
+# in infra/bootstrap prints its exact name.
+bucket = "grain-bin-tfstate-<ACCOUNT_ID>-ca-central-1"

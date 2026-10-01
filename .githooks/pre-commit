@@ -1,0 +1,29 @@
+#!/bin/sh
+# Blocks a commit that would add a secret -- an API key, a token, a private
+# key -- by scanning exactly what is staged with gitleaks.
+#
+# Enable it once per clone:
+#   git config core.hooksPath .githooks
+# Needs gitleaks on the PATH:
+#   winget install Gitleaks.Gitleaks      (Windows)
+#   brew install gitleaks                 (macOS)
+#
+# This is the first of three layers, and the only one that can be skipped
+# (git commit --no-verify): CI scans every push again, and GitHub's push
+# protection rejects known token formats at the server.
+
+if ! command -v gitleaks >/dev/null 2>&1; then
+  echo "pre-commit: gitleaks is not installed, so this commit was not scanned for secrets." >&2
+  echo "            Install it (winget install Gitleaks.Gitleaks) and commit again." >&2
+  exit 1
+fi
+
+# --staged: only what this commit adds, so it is fast. --redact: never print
+# the secret itself, not even in a terminal.
+if ! gitleaks git --pre-commit --staged --redact --no-banner; then
+  echo "" >&2
+  echo "pre-commit: gitleaks found what looks like a secret in the staged changes (above)." >&2
+  echo "            Remove it, unstage it, and keep secrets in .env (git-ignored) instead." >&2
+  echo "            If it is a false positive, add a precise allowlist entry to .gitleaks.toml." >&2
+  exit 1
+fi

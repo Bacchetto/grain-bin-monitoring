@@ -54,7 +54,9 @@ jobs:
           role-to-assume: ${{ vars.AWS_PLAN_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
 
-      - run: terraform init -input=false
+      # The state bucket's name holds the account ID, so it comes from a
+      # repository variable rather than the code (infra/terraform/versions.tf).
+      - run: terraform init -input=false -backend-config="bucket=${{ vars.TF_STATE_BUCKET }}"
 
       # Plan against what is actually running. The image tag and task count
       # are set by deploy.yml, not by the code; planning with the defaults

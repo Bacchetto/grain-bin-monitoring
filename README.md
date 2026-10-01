@@ -288,6 +288,11 @@ Organize backend packages by feature (`ingest`, `alerts`, `bins`), not by layer.
   the API.
 - **Simulator:** `python -m venv simulator/.venv`, activate it, then
   `pip install -r simulator/requirements-dev.txt`.
+- **Secret scanning on commit:** install [gitleaks](https://github.com/gitleaks/gitleaks)
+  (`winget install Gitleaks.Gitleaks`), then `git config core.hooksPath .githooks`
+  once per clone. The pre-commit hook scans what you stage and refuses a commit
+  that adds a key, token or password. CI scans the full history again on every
+  push, since a local hook can be skipped.
 - **Front end:** Node.js 24 LTS, then `cd frontend && npm install`. The dev
   server watches files by polling, because native file watching fails on the
   network drive this repository is developed on. On a local disk, set
@@ -358,7 +363,7 @@ Target an image size under 250 MB. Record the actual size in `docs/results.md`.
 
 ## CI/CD (GitHub Actions)
 
-- **`ci.yml`** runs on pull requests and on pushes to `main`. It covers backend `verify`, frontend lint, test, and build, simulator `pytest`, Docker build, `terraform fmt -check`, and `validate`. It uses Maven and npm caching.
+- **`ci.yml`** runs on pull requests and on pushes to `main`. It covers a gitleaks secret scan of the full history, backend `verify`, frontend lint, test, and build, simulator `pytest`, Docker build, `terraform fmt -check`, and `validate`. It uses Maven and npm caching.
 - **`plan.yml`** runs on pull requests that touch `infra/**`. It runs `terraform plan` and posts the output as a PR comment.
 - **`deploy.yml`** runs on pushes to `main` after CI passes. It:
   - builds and pushes the image to ECR, tagged with the git SHA

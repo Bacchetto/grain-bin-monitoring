@@ -29,10 +29,14 @@ terraform {
   # say -- can never write the state at the same time. (Before Terraform
   # 1.10 this needed a DynamoDB table.)
   #
-  # The bucket name includes the account ID; it identifies the bucket, it is
-  # not a secret.
+  # The BUCKET is deliberately not written here: its name contains the AWS
+  # account ID, which this public repository does not publish. It is
+  # supplied at `terraform init` instead (a "partial backend
+  # configuration"):
+  #   - locally, from backend.hcl -- git-ignored; copy backend.hcl.example
+  #       terraform init "-backend-config=backend.hcl"   (quoted, for PowerShell)
+  #   - in GitHub Actions, from the TF_STATE_BUCKET repository variable
   backend "s3" {
-    bucket       = "grain-bin-tfstate-<ACCOUNT_ID>-ca-central-1"
     key          = "main/terraform.tfstate"
     region       = "ca-central-1"
     encrypt      = true
