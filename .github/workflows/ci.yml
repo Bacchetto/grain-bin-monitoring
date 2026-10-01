@@ -30,6 +30,36 @@ concurrency:
 # to keep the SHAs current.
 
 jobs:
+  secrets:
+    name: Secret scan (gitleaks)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      GITLEAKS_VERSION: '8.30.1'
+    steps:
+      # The whole history, not just the latest commit: a secret added in one
+      # commit and deleted in the next is still in the repository.
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      # The official release binary, checked against the release's published
+      # checksums before it runs -- rather than a third-party action that would
+      # run with this workflow's token.
+      - name: Install gitleaks
+        run: |
+          base="https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}"
+          archive="gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          curl -sSfL -o "$archive" "$base/$archive"
+          curl -sSfL -o checksums.txt "$base/gitleaks_${GITLEAKS_VERSION}_checksums.txt"
+          grep " $archive\$" checksums.txt | sha256sum --check --strict
+          tar -xzf "$archive" gitleaks
+          sudo mv gitleaks /usr/local/bin/
+
+      # Fails the job on any finding. --redact keeps the secret itself out of
+      # the public log.
+      - run: gitleaks git --redact --no-banner --verbose .
+
   backend:
     name: Backend (mvnw verify)
     runs-on: ubuntu-latest

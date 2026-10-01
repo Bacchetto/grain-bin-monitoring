@@ -70,7 +70,8 @@ jobs:
 
       - name: terraform init
         working-directory: infra/terraform
-        run: terraform init -input=false
+        # The bucket comes from a repository variable; see versions.tf.
+        run: terraform init -input=false -backend-config="bucket=${{ vars.TF_STATE_BUCKET }}"
 
       - name: Read the stack's outputs
         id: stack

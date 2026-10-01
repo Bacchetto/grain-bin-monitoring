@@ -9,6 +9,7 @@
 # Must be LF: executed by /bin/sh inside Linux containers and CI runners.
 mvnw           text eol=lf
 *.sh           text eol=lf
+.githooks/*    text eol=lf
 Dockerfile     text eol=lf
 *.Dockerfile   text eol=lf
 
