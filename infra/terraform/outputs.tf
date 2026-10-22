@@ -36,11 +36,11 @@ output "admin_token_secret_name" {
 }
 
 output "github_plan_role_arn" {
-  description = "Repository variable AWS_PLAN_ROLE_ARN, for plan.yml."
+  description = "Repository secret AWS_PLAN_ROLE_ARN, for plan.yml."
   value       = aws_iam_role.github_plan.arn
 }
 
 output "github_deploy_role_arn" {
-  description = "Repository variable AWS_DEPLOY_ROLE_ARN, for deploy.yml."
+  description = "Repository secret AWS_DEPLOY_ROLE_ARN, for deploy.yml."
   value       = aws_iam_role.github_deploy.arn
 }

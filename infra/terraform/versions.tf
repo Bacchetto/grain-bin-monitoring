@@ -35,7 +35,7 @@ terraform {
   # configuration"):
   #   - locally, from backend.hcl -- git-ignored; copy backend.hcl.example
   #       terraform init "-backend-config=backend.hcl"   (quoted, for PowerShell)
-  #   - in GitHub Actions, from the TF_STATE_BUCKET repository variable
+  #   - in GitHub Actions, from the TF_STATE_BUCKET repository secret
   backend "s3" {
     key          = "main/terraform.tfstate"
     region       = "ca-central-1"
