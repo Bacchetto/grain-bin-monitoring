@@ -25,7 +25,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 /**
  * {@code POST /api/v1/readings}, driven over HTTP against real PostgreSQL.
  *
- * <p>Covers the three cases the README names explicitly for Milestone 1 --
+ * <p>Covers the three cases the spec names explicitly for Milestone 1 --
  * duplicates, out-of-order samples, and a missing partition -- plus the batch
  * limit, future-timestamp rejection, and the {@code last_seen_at} rules the
  * Milestone 2 offline alert will depend on.
@@ -131,7 +131,7 @@ class IngestIntegrationTest extends WebIntegrationTest {
 	// -----------------------------------------------------------------------
 
 	@Test
-	@DisplayName("the README's example payload is accepted verbatim, with the README's response")
+	@DisplayName("the spec's example payload is accepted verbatim, with the spec's response")
 	void readmeExampleIsAccepted() {
 		// Literal JSON, not built from the DTOs. If a record component were ever
 		// renamed, every other test here would keep passing -- they serialise
@@ -443,7 +443,7 @@ class IngestIntegrationTest extends WebIntegrationTest {
 			jdbc.sql("UPDATE devices SET last_seen_at = ? WHERE id = ?")
 					.param(pinned.atOffset(ZoneOffset.UTC)).param(device.deviceId()).update();
 
-			// README: a device that connects but sends only duplicate data is
+			// Spec: a device that connects but sends only duplicate data is
 			// still offline from a data standpoint.
 			assertCounts(sendAccepted(body), 0, 1, 0);
 			assertThat(lastSeen()).isEqualTo(pinned);

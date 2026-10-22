@@ -65,7 +65,7 @@ variable "monthly_budget_usd" {
 }
 
 # ---------------------------------------------------------------------------
-# Optional custom domain (README: HTTPS on a custom domain if one is provided)
+# Optional custom domain (spec: HTTPS on a custom domain if one is provided)
 # ---------------------------------------------------------------------------
 
 variable "domain_name" {

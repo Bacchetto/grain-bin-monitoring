@@ -3,7 +3,7 @@
 #   public subnets  -- ECS tasks, with public IPs (see "No NAT gateway" below)
 #   private subnets -- RDS and the internal ALB, no route to the internet
 #
-# NO NAT GATEWAY (README requirement). A NAT gateway lets private resources
+# NO NAT GATEWAY (spec requirement). A NAT gateway lets private resources
 # reach the internet without being reachable from it, and costs about $35 a
 # month per AZ, before data -- more than the rest of this stack. Instead the
 # ECS tasks sit in public subnets with public IPs, so they can pull their

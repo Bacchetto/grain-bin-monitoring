@@ -2,11 +2,11 @@
 
 **Status:** Accepted, 2026-09-23
 **Applies to:** `V4__device_scoped_offline_alert_dedupe.sql`
-**Amends:** the alert lifecycle rules in `README.md`
+**Amends:** the alert lifecycle rules in `docs/spec.md`
 
 ## Context
 
-The README states one de-duplication rule for all alert types:
+The spec states one de-duplication rule for all alert types:
 
 > At most one non-resolved alert per `(bin, type, cable, depth)`.
 
@@ -52,14 +52,14 @@ constraint forbids a `DEVICE_OFFLINE` alert from carrying a sensor position,
 which guarantees the two indexes are disjoint and together cover every
 non-resolved row.
 
-**The README's alert section is updated to match.** The specification was
+**The spec's alert section is updated to match.** The specification was
 slightly wrong here, not the implementation, and leaving the two disagreeing
 would be worse than either.
 
 ## Alternatives
 
 **Enforce one device per bin** with `UNIQUE (bin_id)` on `devices`. This makes
-the README self-consistent without touching the alert rules. Rejected because
+the spec self-consistent without touching the alert rules. Rejected because
 it contradicts the plural registration endpoint and makes a legitimate physical
 arrangement -- one bin, cables on two controllers -- unmodellable, in order to
 work around an alerting detail.

@@ -17,7 +17,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
- * Verifies that the Flyway schema enforces the rules the README states, against
+ * Verifies that the Flyway schema enforces the rules the spec states, against
  * a real PostgreSQL 16.
  *
  * <p>These are deliberately tests of the <em>database</em>, not of Java code.
@@ -86,7 +86,7 @@ class SchemaIntegrationTest {
 	// -----------------------------------------------------------------------
 
 	@Test
-	@DisplayName("bin threshold defaults match the values named in the README")
+	@DisplayName("bin threshold defaults match the values named in the spec")
 	void binThresholdDefaults() {
 		long binId = insertBin();
 

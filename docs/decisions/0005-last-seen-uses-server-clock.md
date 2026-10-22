@@ -13,7 +13,7 @@ when
 now - last_seen_at > 3 × expected_interval_seconds
 ```
 
-The README fixes *when* it moves -- only after a successful insert, so a device
+The spec fixes *when* it moves -- only after a successful insert, so a device
 that sends nothing but duplicates or rejected data is still offline -- but not
 *which clock* it records. There are two candidates:
 

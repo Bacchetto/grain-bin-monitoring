@@ -19,10 +19,10 @@ import java.util.Set;
  * <p>Authenticated by {@code DeviceAuthFilter}, which resolves the device from
  * its {@code X-Device-Key} before this class runs.
  *
- * <p><strong>Why 202 and not 201 or 200.</strong> The README specifies 202
+ * <p><strong>Why 202 and not 201 or 200.</strong> The spec requires 202
  * Accepted. Processing is in fact synchronous today -- the readings are stored
  * by the time the response is sent -- so 202 slightly understates it. It is
- * still the right contract: the README's stretch goal puts an SQS buffer in
+ * still the right contract: the spec's stretch goal puts an SQS buffer in
  * front of the database writer, at which point the work genuinely does become
  * asynchronous, and devices will not need to change.
  */
@@ -46,7 +46,7 @@ public class IngestController {
 	 *
 	 * <p>A structurally invalid sample fails the <em>whole</em> batch with 400,
 	 * and nothing is stored. Only future-dated samples are rejected
-	 * individually, because that is the one per-sample rejection the README
+	 * individually, because that is the one per-sample rejection the spec
 	 * defines.
 	 */
 	@PostMapping("/api/v1/readings")

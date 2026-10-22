@@ -137,7 +137,7 @@ class RateOfRiseEvaluatorIntegrationTest {
 		assertThat(alert.get("depth_index")).isEqualTo(DEPTH);
 		assertThat((BigDecimal) alert.get("trigger_value")).isBetween(new BigDecimal("2.1"), new BigDecimal("2.4"));
 		assertThat((BigDecimal) alert.get("threshold_value")).isEqualByComparingTo("2.0");
-		// The README's promise for this scenario: RATE_OF_RISE before
+		// The spec's promise for this scenario: RATE_OF_RISE before
 		// HIGH_TEMPERATURE. Nothing here has come near 20 degrees.
 		assertThat(maxTemperature()).isLessThan(new BigDecimal("14.0"));
 	}

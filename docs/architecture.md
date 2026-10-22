@@ -2,7 +2,7 @@
 
 > **Status: not yet written.** This document is filled in during Milestone 4.
 > The outline below is the agreed shape so the gap is visible rather than
-> silently missing. For now, the [README](../README.md) is the authoritative
+> silently missing. For now, the [README](../README.md) and the [spec](spec.md) are the authoritative
 > description of the system.
 
 ## Planned contents

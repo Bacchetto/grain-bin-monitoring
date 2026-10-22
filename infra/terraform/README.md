@@ -36,7 +36,7 @@ alerts once it is running.
 | Public IPv4 address for the task | $3.60 |
 | CloudFront, S3, ECR, Secrets Manager, CloudWatch, logs | a few dollars |
 
-**Destroy it when not demoing** (README: cost discipline). An hour of demo
+**Destroy it when not demoing** (spec: cost discipline). An hour of demo
 costs a few cents; a forgotten month costs the table above.
 
 ## Applying it (the owner does this -- Milestone 3 Phase 6)

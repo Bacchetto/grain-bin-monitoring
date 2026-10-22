@@ -45,7 +45,7 @@ resource "aws_db_instance" "main" {
 
   # RDS generates the master password and keeps it in Secrets Manager, in a
   # secret it creates and rotates. Terraform never sees the password; the
-  # ECS task reads it from that secret (ecs.tf). README requirement.
+  # ECS task reads it from that secret (ecs.tf). Spec requirement.
   manage_master_user_password = true
 
   db_subnet_group_name   = aws_db_subnet_group.main.name

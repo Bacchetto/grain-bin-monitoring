@@ -1,441 +1,265 @@
 # Grain Bin Telemetry
 
-A backend service and dashboard for monitoring stored grain. Sensor cables hang inside grain bins and report temperature and moisture at several depths. The system ingests those readings, stores them as time series, and raises alerts when a bin shows signs of spoilage or when a device stops reporting.
+A backend service and dashboard for monitoring stored grain.
 
-This project demonstrates production-style backend engineering end to end: API design, data modeling, testing, containerization, CI/CD, infrastructure as code on AWS, observability, and load testing.
+Sensor cables hang inside grain bins and report temperature and moisture at several depths. The
+service ingests those readings, stores them as time series, and raises alerts when a bin shows
+signs of spoilage or a device stops reporting. A dashboard shows every bin, a grid of its
+sensors, charts over time, and the open alerts.
 
-> **Note for Claude Code:** This README is the project spec. Read the whole file before writing code, then work through the [Milestones](#milestones) in order.
+It demonstrates production-style backend engineering end to end:
+- an API with idempotent ingest that tolerates retries, reordering and clock skew
+- time-series storage in PostgreSQL, partitioned by month
+- an alert engine with de-duplication and auto-resolve
+- integration tests against real Postgres, never a mock
+- a container image, CI/CD and infrastructure as code on AWS, with no stored keys
+- observability, and load testing
 
----
+## Try it locally
 
-## Tech stack
+You need **Docker**, **Python 3.11+** and **Node.js 24**. Docker runs the database, the API's
+production image, Prometheus and Grafana. The simulator plays the sensors, and the dashboard runs
+from Vite.
 
-| Area | Choice |
+```bash
+git clone https://github.com/Bacchetto/grain-bin-monitoring.git
+cd grain-bin-monitoring
+cp .env.example .env                           # then set ADMIN_TOKEN: the file shows how to generate one
+docker compose --profile api up -d --build     # Postgres, the API on :8080, Prometheus, Grafana
+```
+
+Start the simulator, and create some bins:
+
+```bash
+python -m venv simulator/.venv
+# Windows: simulator\.venv\Scripts\activate    macOS/Linux: source simulator/.venv/bin/activate
+pip install -r simulator/requirements.txt
+python simulator/sim.py --seed-bins 3          # 3 bins, one device each; keys saved to simulator/.devices.json
+```
+
+Open the dashboard in a second terminal, then sign in with the `ADMIN_TOKEN` from `.env`:
+
+```bash
+cd frontend && npm install && npm run dev      # http://localhost:5173
+```
+
+Then run the scenarios and watch the dashboard:
+
+| Command | What happens |
 |---|---|
-| Backend | Java 21 (LTS), Spring Boot 4.1.x, Maven (with wrapper) |
-| Database | PostgreSQL 16+, Flyway migrations, native table partitioning |
-| Testing | JUnit 6, AssertJ, Testcontainers (real Postgres, no H2), MockMvc |
-| Front end | React + TypeScript, Vite, Recharts |
-| Simulator | Python 3.11+, `requests`, `pytest` |
-| Containers | Hand-written multi-stage Dockerfile, Docker Compose for local dev |
-| CI/CD | GitHub Actions, OIDC federation to AWS (no long-lived keys) |
-| Cloud | AWS `ca-central-1`: ECS Fargate, RDS PostgreSQL, ALB, ECR, S3 + CloudFront, CloudWatch |
-| IaC | Terraform, S3 remote state with native lockfile (`use_lockfile = true`) |
-| Observability | Spring Actuator, Micrometer (Prometheus format), Grafana locally, CloudWatch in AWS |
-| Load testing | k6 |
+| `python simulator/sim.py --scenario normal --interval 10` | Steady readings every 10 seconds, with a small daily swing near the top of each bin. The grid fills in. Ctrl-C stops it. |
+| `python simulator/sim.py --scenario hotspot --bins 1` | Replays five days in about two minutes: three steady, then one sensor mid-bin warming. **`RATE_OF_RISE`** opens at the next check, within five minutes, while the sensor is still near 13 °C. |
+| `python simulator/sim.py --scenario wet --bins 1` | Replays a day of rising moisture on the bottom sensors. **`HIGH_MOISTURE`** opens on every cable. |
+| `python simulator/sim.py --scenario offline --bins 1` | Five samples, then silence. **`DEVICE_OFFLINE`** opens about 90 seconds later, plus up to a minute for the check. |
+| `python simulator/sim.py --scenario flaky --cycles 20` | Resent batches, shuffled order and skipped intervals. No alerts, and nothing stored twice. |
 
-> **Spring Boot 4 notes.** "Latest stable Spring Boot" resolved to 4.1.1, which
-> pulls in **JUnit 6** and **Jackson 3** through its dependency management. The
-> JUnit Jupiter API and its `org.junit.jupiter.api` package names are unchanged,
-> so tests are written exactly as they would be under JUnit 5. Jackson 3 is a
-> real move, and a partial one worth knowing exactly: `jackson-core` and
-> `jackson-databind` move to group id `tools.jackson.core` at 3.1.5, while
-> `jackson-annotations` stays at `com.fasterxml.jackson.core` 2.21. So mapper
-> and module imports change, but `@JsonProperty` and friends still come from
-> `com.fasterxml.jackson.annotation`. Spring's own `@JsonComponent` becomes
-> `@JacksonComponent`.
->
-> Boot 4 also renamed starters. `spring-boot-starter-web` is now
-> `spring-boot-starter-webmvc`, Flyway needs an explicit
-> `spring-boot-starter-flyway`, and `spring-boot-starter-test` is split into
-> per-module `*-test` starters. Most tutorials still describe the Boot 3 names.
-> Every difference met so far, including one that fails silently, is listed in
-> [ADR 0009](docs/decisions/0009-spring-boot-4.md).
+Grafana is at http://localhost:3000, with ingest rate, latency and alert transitions. To stop
+everything, run `docker compose --profile api down`, or add `-v` to delete the data as well.
 
----
+## How it works
 
-## Architecture
+```mermaid
+flowchart LR
+    devices(["Sensor cables<br/>or the simulator"])
+    browser(["Browser"])
+    cf["CloudFront<br/>HTTPS"]
+    s3["S3<br/>the React dashboard"]
+    alb["Internal ALB<br/>/api/* only"]
+    api["Spring Boot API on ECS Fargate<br/>ingest · queries · alert engine"]
+    db[("RDS PostgreSQL 16<br/>readings partitioned by month")]
+    secrets["Secrets Manager"]
+    cw["CloudWatch<br/>logs · alarms"]
 
-```
- [Simulator / real devices]
-            |
-            |  POST /api/v1/readings  (X-Device-Key header)
-            v
-   +-------------------+        +---------------------+
-   |  ALB (HTTPS)      | -----> |  Spring Boot API    |
-   +-------------------+        |  (ECS Fargate)      |
-                                |  - ingest           |
-   [React dashboard]            |  - query            |
-   S3 + CloudFront  ----------> |  - alert engine     |
-                                |  - scheduled jobs   |
-                                +----------+----------+
-                                           |
-                                           v
-                                +---------------------+
-                                |  RDS PostgreSQL     |
-                                |  readings partitioned|
-                                |  by month           |
-                                +---------------------+
+    devices -- "POST /api/v1/readings<br/>X-Device-Key" --> cf
+    browser --> cf
+    cf -- "everything else" --> s3
+    cf -- "/api/*, through a VPC origin" --> alb --> api --> db
+    secrets -.-> api
+    api -.-> cw
 ```
 
-Locally, `docker compose up` runs Postgres, Prometheus, and Grafana; the API joins it in Milestone 3, and until then runs on the host with `./mvnw spring-boot:run`. The front end runs with `npm run dev`.
+**Ingest is idempotent.**
+- **Authentication:** a device posts batches of up to 500 samples, authenticated by its own API key. Only a SHA-256 hash of the key is stored ([ADR 0004](docs/decisions/0004-sha-256-for-device-api-keys.md)).
+- **Retries are safe:** every reading carries the device's monotonically increasing `seq`, and the insert ignores a reading it already holds. A retried batch is counted as duplicates, not stored twice.
+- **The response adds up:** it counts accepted, duplicate and rejected readings, and they always sum to what was sent.
+- **Bad timestamps are refused one sample at a time:** a sample more than five minutes in the future, or older than 30 days, is rejected, and the rest of the batch is stored.
+- **Clocks:** `last_seen_at` follows the server's clock, so a device's clock skew can't cause or hide an offline alert ([ADR 0005](docs/decisions/0005-last-seen-uses-server-clock.md)).
 
----
+**Storage.**
+- **Partitions:** `readings` is range-partitioned by month, and partitions are created ahead of time, so an insert never fails for want of one ([ADR 0010](docs/decisions/0010-monthly-range-partitioning.md)).
+- **Indexes:** the read-path indexes were chosen with `EXPLAIN ANALYZE` on 6.2 million rows ([ADR 0007](docs/decisions/0007-read-path-indexes-verified-with-explain-analyze.md)).
+- **Data access:** plain SQL through Spring JDBC, with no ORM ([ADR 0008](docs/decisions/0008-spring-jdbc-over-jpa.md)).
 
-## Domain model
+**Alerts.** Thresholds are set per bin, and the defaults are placeholders, not agronomic guidance.
 
-- **Bin:** A physical grain bin. It has a name, a site name (the farm yard), a capacity in bushels, a grain type, and per-bin alert thresholds.
-- **Device:** A monitoring controller attached to one bin. It authenticates with its own API key (store only a hash). It has an `expected_interval_seconds` (how often it should report) and a `last_seen_at` timestamp.
-- **Sample:** One reporting cycle from a device. It carries a device-assigned, monotonically increasing `seq` and a `recorded_at` timestamp.
-- **Reading:** One sensor value within a sample, identified by `cable_index` (which cable) and `depth_index` (position on the cable, 0 = top). It holds `temperature_c` and an optional `moisture_pct`.
-- **Alert:** A detected condition on a bin, sensor, or device, with a lifecycle (see [Alert engine](#alert-engine)).
-
-### Schema notes
-
-- `readings` is range-partitioned by `recorded_at`, one partition per month. A scheduled job (or a Flyway-managed function) creates partitions ahead of time. Never let an insert fail because a partition is missing.
-- Idempotency: a unique constraint covers `(device_id, seq, cable_index, depth_index, recorded_at)`. **Postgres requires the partition key to be part of any unique constraint on a partitioned table**, which is why `recorded_at` is included. A retried batch carries the same values, so duplicates are still caught.
-- Use `INSERT ... ON CONFLICT DO NOTHING` and report duplicate counts back to the caller.
-- Store both `recorded_at` (device clock) and `received_at` (server clock).
-- Add indexes for the query patterns in the API below. Verify them with `EXPLAIN ANALYZE` and note the results in `docs/decisions/`.
-- Flyway migrations are append-only. Never edit a migration once it has been committed.
-
----
-
-## API
-
-All endpoints are under `/api/v1`. JSON in and out. Errors use RFC 9457 Problem Details (`application/problem+json`).
-
-### Device ingest
-
-`POST /api/v1/readings`, authenticated by the `X-Device-Key` header.
-
-```json
-{
-  "samples": [
-    {
-      "seq": 1042,
-      "recordedAt": "2026-10-01T14:00:00Z",
-      "sensors": [
-        { "cable": 0, "depth": 0, "temperatureC": 11.4, "moisturePct": 13.9 },
-        { "cable": 0, "depth": 1, "temperatureC": 12.1, "moisturePct": 14.2 }
-      ]
-    }
-  ]
-}
-```
-
-Response `202 Accepted`:
-
-```json
-{ "accepted": 2, "duplicates": 0, "rejected": 0 }
-```
-
-Rules:
-
-- The device is identified from its key. It never sends its own ID.
-- Maximum 500 samples per batch. Return 413 if exceeded.
-- Reject samples with `recordedAt` more than 5 minutes in the future, and count them as `rejected`. The rest of the batch is still processed.
-- Likewise reject samples recorded longer ago than `app.ingest.max-sample-age` (default **30 days**, overridable with `APP_INGEST_MAX_SAMPLE_AGE`). This stops a device whose clock has reset from writing into long-past partitions. See [ADR 0006](docs/decisions/0006-reject-samples-older-than-a-configurable-age.md).
-- All three counts are in **readings** (one per sensor value), not samples, so `accepted + duplicates + rejected` always equals the number of sensor values sent.
-- A structurally invalid reading (a missing field, or a value its column cannot store) fails the whole batch with `400`, and the error names it by path, e.g. `samples[3].sensors[0].temperatureC`.
-- Samples may arrive out of order. Order is determined by `recordedAt`, not arrival.
-- Update `devices.last_seen_at` only after a successful insert, to the **server's** receive time rather than the device's `recordedAt`, so device clock skew cannot cause or hide a `DEVICE_OFFLINE` alert. See [ADR 0005](docs/decisions/0005-last-seen-uses-server-clock.md).
-- Evaluate threshold alerts synchronously after insert (see below).
-
-### Admin and dashboard
-
-Authenticated with `Authorization: Bearer <ADMIN_TOKEN>`, where the token comes from an environment variable. This is deliberately simple and is **not production-grade auth**. The tradeoff is recorded in [ADR 0003](docs/decisions/0003-filter-based-auth.md), and a replacement is enhancement [E10](docs/enhancements.md#e10).
-
-| Method | Path | Purpose |
+| Alert | Raised when | Checked |
 |---|---|---|
-| POST | `/bins` | Create a bin |
-| GET | `/bins` | List bins with current status (worst open alert, last reading time) |
-| GET | `/bins/{id}` | Bin detail and thresholds |
-| PATCH | `/bins/{id}/thresholds` | Update alert thresholds |
-| POST | `/bins/{id}/devices` | Register a device. Returns the plaintext API key **once**. |
-| GET | `/bins/{id}/latest` | Latest reading per sensor, from the last 7 days; a sensor silent for longer is omitted rather than shown stale |
-| GET | `/bins/{id}/readings?from=&to=&bucket=hour\|day` | Time-bucketed averages, min, and max per sensor over `[from, to)`. Buckets align to UTC; at most 1,000 per sensor per request |
-| GET | `/alerts?status=open\|acknowledged\|resolved&binId=&limit=` | List alerts, newest detection first. `status` also takes several values, comma-separated (`open,acknowledged`), and defaults to all. `limit` defaults to 100, at most 500. |
-| POST | `/alerts/{id}/acknowledge` | Acknowledge an open alert. Repeating it is harmless; a resolved alert is a `409`. |
+| `HIGH_TEMPERATURE` | a sensor is above the bin's limit (default 20 °C) | on ingest |
+| `HIGH_MOISTURE` | a sensor is above the bin's limit (default 14.5 %) | on ingest |
+| `RATE_OF_RISE` | a sensor's daily average has risen 2 °C over 72 hours ([ADR 0013](docs/decisions/0013-rate-of-rise-on-daily-averages.md)) | every 5 minutes |
+| `DEVICE_OFFLINE` | a device has stored nothing for three of its reporting intervals | every minute |
 
-Device API keys cannot be revoked yet: a lost or leaked key keeps working until its device is removed from the database by hand. This is a known gap, enhancement [E7](docs/enhancements.md#e7).
+- **One alert per condition:** a repeat detection updates the open alert instead of adding another.
+- **No flapping:** an alert resolves itself after three clear evaluations ([ADR 0014](docs/decisions/0014-what-counts-as-an-alert-evaluation.md)).
+- **Probe faults are ignored:** the values a faulty or just-powered probe reports (−127 °C, exactly 85 °C) are stored and shown, but never evaluated ([ADR 0016](docs/decisions/0016-ignore-probe-fault-values-in-alert-evaluation.md)).
+- **One instance runs each check:** with several API instances, each scheduled check still runs on only one of them, by a PostgreSQL advisory lock ([ADR 0015](docs/decisions/0015-advisory-lock-for-scheduled-alert-jobs.md)).
+- **Every state change is recorded:** each one is logged as structured JSON and counted as a metric.
 
-Health and metrics are served at `/actuator/health` and `/actuator/prometheus`.
+**The dashboard** is React and TypeScript.
+- **Pages:** a bin list with each bin's worst open alert, a bin page with a sensor grid and temperature and moisture charts over 24 hours, 7 days or 30 days, and an alerts view with Acknowledge.
+- **The admin token is held in memory only,** never in browser storage ([ADR 0018](docs/decisions/0018-dashboard-stack-and-in-memory-token.md)).
 
----
+**Observability.**
+- **Metrics:** the API exposes Prometheus metrics: readings by outcome, ingest latency histograms and alert transitions.
+- **Locally,** Grafana shows them on a provisioned dashboard.
+- **In AWS,** logs go to CloudWatch, and alarms on the 5xx rate, CPU and database storage send email.
 
-## Alert engine
+**Deployment** is Terraform and GitHub Actions ([`infra/terraform/README.md`](infra/terraform/README.md)).
+- **One front door:** CloudFront serves the dashboard and the API over HTTPS from one address, so the load balancer stays internal and the metrics endpoint is never public.
+- **No stored keys:** workflows reach AWS through GitHub OIDC.
+- **Plans on pull requests:** every pull request that changes the infrastructure gets a `terraform plan` comment.
+- **Deploys wait for approval:** a deploy runs only after the owner approves it.
+- **No NAT gateway,** for cost.
+- **No secrets in Terraform state:** the database password is managed by RDS, and the admin token is written to Secrets Manager without ever entering state.
 
-| Type | Condition (defaults are configurable per bin) | When evaluated |
+**Stack:**
+- **Backend:** Java 21, Spring Boot 4.1, PostgreSQL 16 with Flyway, JUnit and Testcontainers
+- **Front end:** React, TypeScript, Vite, Recharts
+- **Simulator:** Python
+- **Operations:** Docker, GitHub Actions, Terraform, AWS (`ca-central-1`)
+- **Monitoring:** Prometheus and Grafana, CloudWatch
+
+The full requirements are in [docs/spec.md](docs/spec.md).
+
+## Results
+
+Everything below was measured. The dates, environments and methods are in
+[docs/results.md](docs/results.md).
+
+**Query plans,** on PostgreSQL 16 with 6.2 million readings across four monthly partitions:
+
+| Query | Rows read | Time |
 |---|---|---|
-| `HIGH_TEMPERATURE` | Any sensor above `max_temperature_c` (default 20.0) | On ingest |
-| `HIGH_MOISTURE` | Any sensor above `max_moisture_pct` (default 14.5) | On ingest |
-| `RATE_OF_RISE` | A sensor's temperature has risen at least `rise_threshold_c` (default 2.0) over the trailing `rise_window_hours` (default 72). Measured on daily averages -- the last 24 h against the 24 h that ended `rise_window_hours` ago -- so the normal day/night swing near the top of a bin is not mistaken for a rise. A sensor needs half a day's expected readings in each window to be judged. See [ADR 0013](docs/decisions/0013-rate-of-rise-on-daily-averages.md). | Scheduled, every 5 min |
-| `DEVICE_OFFLINE` | `now - last_seen_at > 3 × expected_interval_seconds`. A device that has never reported is measured from its registration. | Scheduled, every 1 min |
+| Latest reading per sensor, 7-day lookback | 48,384 | 29 ms |
+| Hourly buckets, 24 hours | 6,912 | 6 ms |
+| Daily buckets, 30 days | 207,360 | 93 ms |
+| Rate-of-rise daily averages, one bin, 72-hour window | 13,824 | 12 ms |
 
-The default thresholds are placeholders for demonstration, not agronomic guidance.
+**An index that wasn't used was dropped.** The index first built for the latest-reading query was
+never chosen by the planner, and it made inserts 70% slower (1,655 ms against 971 ms for 345,600
+readings).
 
-Lifecycle and rules:
+**Daily averages cancel the daily cycle.** The generated data swings ±1.5 °C each day near the top
+of the bin. All 24 sensors came out with a rate of rise of exactly 0.000, so the swing isn't
+mistaken for heating.
 
-- Lifecycle: `OPEN` → `ACKNOWLEDGED` → `RESOLVED`.
-- At most one non-resolved alert per condition. Repeat detections update `last_detected_at` rather than creating new rows.
-  The key depends on what the alert is about: sensor alerts (`HIGH_TEMPERATURE`, `HIGH_MOISTURE`, `RATE_OF_RISE`) use
-  `(bin, type, cable, depth)`; `DEVICE_OFFLINE` has no sensor position and uses `(bin, type, device)`, so two offline
-  controllers on one bin raise two alerts and each resolves on its own recovery. See
-  [ADR 0002](docs/decisions/0002-device-scoped-offline-alert-dedupe.md).
-- Auto-resolve when the condition has been clear for 3 consecutive evaluations. This prevents flapping.
-  For the on-ingest alerts, one evaluation is one batch's newest *newly stored* reading per sensor: a resent
-  duplicate batch evaluates nothing, a buffered backlog counts once, and a batch that arrives after newer data
-  for the same sensor is not evaluated at all. See [ADR 0014](docs/decisions/0014-what-counts-as-an-alert-evaluation.md).
-- `DEVICE_OFFLINE` must be based on the last **successfully stored** reading, not on connection attempts. A device that connects but sends only rejected or duplicate data is still offline from a data standpoint.
-- Probe fault values are stored and shown, but never evaluated. Firmware commonly reports −127 °C for an unreadable DS18B20, which would make a recovery to 12 °C look like a 139 °C rise, and the probe itself reads 85 °C before its first conversion after power-up. The engine skips exactly 85.0 °C and anything outside −60..100 °C; the range is wide so that genuinely heating grain is never mistaken for a fault. See [ADR 0016](docs/decisions/0016-ignore-probe-fault-values-in-alert-evaluation.md); a fuller treatment is enhancement [E3](docs/enhancements.md#e3).
-- With more than one API instance, each scheduled job still runs on only one of them at a time (a PostgreSQL advisory lock), so a clear is never counted twice. See [ADR 0015](docs/decisions/0015-advisory-lock-for-scheduled-alert-jobs.md).
-- Every alert state change is logged as structured JSON ([ADR 0019](docs/decisions/0019-structured-json-logging.md)) and counted with a Micrometer counter (`alerts_transitions_total{type,to_state}`).
+**The container image** is 239.6 MB, under its 250 MB target, and 100.7 MB compressed. The
+project's own code is a 0.6 MB layer, so a normal code change ships under a megabyte of new image.
 
----
+**The dashboard** downloads about 95 kB gzipped. The charts load only when a bin is opened, which
+adds 110 kB.
 
-## Simulator
+**CI runs** on every pull request and push to `main`, in six jobs:
+- a secret scan of the full history
+- the backend's tests, against real PostgreSQL in Testcontainers
+- the dashboard's lint, tests and build
+- the simulator's tests
+- the image build
+- Terraform `fmt` and `validate`
 
-`simulator/sim.py` posts realistic data to the ingest API. Every scenario can run against a local or deployed URL.
+**Load tests** with k6, locally and on AWS, are still to come
+([#9](https://github.com/Bacchetto/grain-bin-monitoring/issues/9)).
 
-```bash
-python simulator/sim.py --url http://localhost:8080 --scenario normal --bins 5 --interval 10
-```
+## Known limitations
 
-| Scenario | Behaviour |
+- **The admin token is not production-grade authentication.** It is one shared bearer token
+  ([ADR 0003](docs/decisions/0003-filter-based-auth.md)), and real users and roles are enhancement
+  [E10](docs/enhancements.md#e10).
+- **Device keys can't be revoked.** A leaked key works until its device is removed from the
+  database by hand ([E7](docs/enhancements.md#e7)). Bins and devices can't be deleted through the
+  API either ([E8](docs/enhancements.md#e8)).
+- **One bad reading fails its whole batch,** with a `400` that names it by path. Timestamps are
+  the exception, and are rejected one sample at a time
+  ([E1](docs/enhancements.md#e1)).
+- **Daily buckets are UTC days,** not the site's local days ([E14](docs/enhancements.md#e14)).
+- **Old readings are kept forever.** Nothing drops old partitions yet ([E9](docs/enhancements.md#e9)).
+- **Reloading the dashboard asks for the token again.** That is the cost of keeping it out of
+  browser storage.
+- **The AWS deployment isn't kept running.** It costs about $45-60 a month while up, so it is
+  destroyed between demos. Its database is single-AZ and has no final snapshot.
+
+The rest of the possible enhancements, each with its trade-off, are in
+[docs/enhancements.md](docs/enhancements.md).
+
+## Design decisions
+
+Each choice is recorded with its context, the alternatives and its consequences:
+
+| ADR | Decision |
 |---|---|
-| `normal` | Stable temperatures with small diurnal drift near the top of the bin |
-| `hotspot` | One sensor mid-bin climbs slowly. It should trigger `RATE_OF_RISE` before `HIGH_TEMPERATURE`. |
-| `wet` | Moisture rises on the bottom sensors |
-| `flaky` | Resends batches (duplicates), shuffles order, and skips intervals |
-| `offline` | Device stops reporting after N samples |
+| [0001](docs/decisions/0001-no-foreign-keys-on-readings.md) | No foreign keys on the `readings` table |
+| [0002](docs/decisions/0002-device-scoped-offline-alert-dedupe.md) | `DEVICE_OFFLINE` alerts de-duplicate per device, not per bin |
+| [0003](docs/decisions/0003-filter-based-auth.md) | Servlet filters for authentication, not Spring Security |
+| [0004](docs/decisions/0004-sha-256-for-device-api-keys.md) | SHA-256 for device API keys, not bcrypt |
+| [0005](docs/decisions/0005-last-seen-uses-server-clock.md) | `last_seen_at` records the server's clock, not the device's |
+| [0006](docs/decisions/0006-reject-samples-older-than-a-configurable-age.md) | Reject samples older than a configurable age |
+| [0007](docs/decisions/0007-read-path-indexes-verified-with-explain-analyze.md) | Read-path indexes, verified with `EXPLAIN ANALYZE` |
+| [0008](docs/decisions/0008-spring-jdbc-over-jpa.md) | Spring JDBC rather than JPA |
+| [0009](docs/decisions/0009-spring-boot-4.md) | Spring Boot 4.1, not 3.5 |
+| [0010](docs/decisions/0010-monthly-range-partitioning.md) | Range-partition `readings` by month |
+| [0011](docs/decisions/0011-bin-id-denormalised-onto-readings.md) | Store `bin_id` on every reading |
+| [0012](docs/decisions/0012-rancher-desktop-for-local-containers.md) | Rancher Desktop as the local container runtime |
+| [0013](docs/decisions/0013-rate-of-rise-on-daily-averages.md) | Measure rate of rise on daily averages |
+| [0014](docs/decisions/0014-what-counts-as-an-alert-evaluation.md) | What counts as one alert evaluation |
+| [0015](docs/decisions/0015-advisory-lock-for-scheduled-alert-jobs.md) | One instance at a time for scheduled alert jobs, by advisory lock |
+| [0016](docs/decisions/0016-ignore-probe-fault-values-in-alert-evaluation.md) | Keep probe fault values out of alert evaluation |
+| [0017](docs/decisions/0017-cors-filter-before-authentication.md) | A CORS filter ahead of the authentication filters |
+| [0018](docs/decisions/0018-dashboard-stack-and-in-memory-token.md) | Dashboard stack, and a token held in memory only |
+| [0019](docs/decisions/0019-structured-json-logging.md) | Structured JSON logging, built into Spring Boot |
+| [0020](docs/decisions/0020-time-scale-replays-the-past.md) | The simulator's `--time-scale` replays the past |
+| [0021](docs/decisions/0021-local-tooling-on-a-network-drive.md) | Local tooling that works from a network drive: poll, don't watch; build, don't mount |
 
-Use `--time-scale` to compress simulated time so that multi-day scenarios run in minutes. The simulator also has a `--seed-bins` mode that creates bins and devices through the admin API and writes the device keys to a local, git-ignored file.
+The requirements and milestones are in [docs/spec.md](docs/spec.md), and progress is tracked in
+[GitHub issues](https://github.com/Bacchetto/grain-bin-monitoring/issues?q=label%3Amilestone).
 
-**How `--time-scale` works: it replays the past.** The backend rejects samples more than five minutes in the future and judges rate of rise against its own clock, so a shape that takes days to develop has to be placed in the past. A scenario starts `--history` hours ago -- by default 120 for `hotspot` (three steady days, then two of warming), 24 for `wet`, 0 otherwise -- and is replayed `--time-scale` times faster than real time (default 3600, an hour a second) until it catches up with the present, then carries on live ([ADR 0020](docs/decisions/0020-time-scale-replays-the-past.md)). Replayed samples are spaced at the device's registered interval, because the rate-of-rise rule needs half a day's expected readings in each window. `--history` also works with `normal`, to give the dashboard's charts some past to show. It is capped at 29 days, inside the backend's 30-day sample-age limit.
-
-| Scenario | What it raises, and when |
-|---|---|
-| `hotspot` | `RATE_OF_RISE` on cable 1, depth 3, within one check of the replay finishing, while that sensor is still near 13 °C. `HIGH_TEMPERATURE` would follow days later if left running. |
-| `wet` | `HIGH_MOISTURE` on the bottom sensor of every cable, during the replay: moisture passes 14.5 % twelve hours in. |
-| `offline` | Sends 5 samples (`--offline-after N`), then stops. `DEVICE_OFFLINE` opens about 90 seconds later, plus up to a minute for the check. |
-
-`--time-scale` cannot speed up `offline`. `DEVICE_OFFLINE` compares the server's clock with `last_seen_at`, which is also set from the server's clock ([ADR 0005](docs/decisions/0005-last-seen-uses-server-clock.md)), so nothing the simulator does to `recordedAt` moves it. The alert fires after three real registered intervals: at least 90 seconds.
-
-- `--seed-bins N` is safe to repeat: bins it already holds keys for are left alone. Keys are stored per `--url`, so seeding a deployed stack does not overwrite the local keys. Devices are registered as reporting every 30 seconds at least, the backend's minimum; streaming more often is fine.
-- `--cycles N` stops after N samples per device; without it the simulator runs until Ctrl-C. `--seed` makes a run repeatable.
-- **Checking that each scenario raises its alert:** `pytest` checks the generated shapes against the backend's rules, and the backend's own tests check the rules against the same shapes. `pytest -m e2e` proves the two agree, against a running stack with the alert checks shortened -- see `simulator/tests/test_e2e.py` for the two commands. It takes about two minutes, most of it waiting for `DEVICE_OFFLINE`.
-- `seq` is derived from each sample's timestamp in whole seconds, so it increases across restarts with nothing stored on disk, and a resent sample carries its original `seq` -- which is how the backend recognises it as a duplicate.
-
----
-
-## Front end
-
-Built with Vite + React + TypeScript and strict mode on. Keep it small and functional.
-
-- **Bin list:** name, site, grain type, status badge (worst open alert), last reading age.
-- **Bin detail:** a heatmap-style grid of the latest temperature per cable and depth, plus a line chart per sensor over a selectable range (24h / 7d / 30d).
-- **Alerts view:** open and acknowledged alerts, with an acknowledge button.
-- **Login screen:** prompts for the admin token. Keep the token in memory only and never write it to `localStorage`.
-- Typed API client in `frontend/src/api/`, with types that mirror the backend DTOs.
-
-**As built:**
-
-- **Bin list:** every bin with its worst open alert and last reading age, refreshing every 30 seconds.
-- **Bin detail:** the bin's limits and open alerts; a grid of the latest temperature at every cable and depth; and, for the sensor picked on the grid (the hottest, until one is picked), a temperature chart and a moisture chart over 24 h, 7 days or 30 days. Hourly buckets for the first two, daily for 30 days.
-  - The grid's colour is one blue ramp, the 20 °C below the bin's limit from pale to dark: a fixed span, so a colour means the same temperature in every bin. A cell above the limit is marked with an icon and says so in words; every cell shows its value, so nothing depends on reading a shade. A position with no reading in the last week is a gap, not a stale number.
-  - Each chart shows the bucket average as a line, the min-max range as a faint band, and the bin's limit as a reference line, with a crosshair readout and a table of every value underneath. Temperature and moisture are separate charts, never one chart with two y-axes. Colours follow the dataviz skill's reference palette, checked with its validator in both light and dark mode.
-- **Alerts view:** every open and acknowledged alert, newest first, with an Acknowledge button. Acknowledging refreshes the list from the server; if the alert resolved first (`409`), the page says so.
-- The detail page is loaded lazily, so the chart library is downloaded only when a bin is opened: about 95 kB gzipped for the rest of the app, 110 kB more for the charts.
-
-- **Libraries:** React Router for pages and TanStack Query for fetching and caching ([ADR 0018](docs/decisions/0018-dashboard-stack-and-in-memory-token.md)). The token and the query cache live together, so signing out -- or being signed out by a `401` from any request -- also empties the cache. Tests use Vitest and React Testing Library, with `fetch` replaced by a fake that answers like the API.
-- **The token is checked before it is accepted**, by listing bins with it, so a mistyped token fails on the login screen with a clear message. Reloading the page asks for it again: that is the cost of keeping it in memory only.
-- **API URL:** `VITE_API_URL`, default `http://localhost:8080`. Vite reads it from the environment or a `frontend/.env.local` file at build time. The API must list the dashboard's origin in `CORS_ALLOWED_ORIGINS`; `.env.example` already has `http://localhost:5173`.
-
----
-
-## Repository layout
+## Layout
 
 ```
-.
-├── backend/                  Spring Boot service (Maven)
-│   ├── src/main/java/...     one package per feature: ingest/, readings/, alerts/, bins/, devices/, config/, common/
-│   ├── src/main/resources/db/migration/   Flyway scripts
-│   ├── src/test/java/...
-│   └── Dockerfile
-├── frontend/                 Vite + React + TypeScript
-├── simulator/                Python simulator and its tests
-├── infra/terraform/          AWS infrastructure
-├── load-tests/k6/            k6 scripts
-├── ops/                      Prometheus config, Grafana dashboards (provisioned)
-├── docs/
-│   ├── architecture.md
-│   ├── results.md            Load test results
-│   ├── enhancements.md       Possible future enhancements, not yet scheduled
-│   └── decisions/            ADRs (NNNN-title.md)
-├── .github/workflows/
-├── docker-compose.yml
-└── README.md
+backend/            Spring Boot service; one package per feature: ingest, readings, alerts, bins, devices, config
+  src/main/resources/db/migration/   Flyway migrations, append-only
+  Dockerfile        the production image
+frontend/           the React + TypeScript dashboard
+simulator/          the Python device simulator and its tests
+infra/bootstrap/    the Terraform state bucket, applied once
+infra/terraform/    the AWS stack, with its runbook
+ops/                Prometheus config and the provisioned Grafana dashboard
+.github/workflows/  ci.yml, plan.yml, deploy.yml
+.githooks/          the gitleaks pre-commit hook
+docs/               spec, setup, results, enhancements, decision records
+docker-compose.yml  local Postgres, Prometheus, Grafana, and the API image
 ```
 
-Organize backend packages by feature (`ingest`, `alerts`, `bins`), not by layer.
-
----
-
-## Local development
-
-### One-time setup
-
-- **A Docker-compatible container runtime.** This project is developed with
-  [Rancher Desktop](https://rancherdesktop.io/); Docker Desktop also works.
-  With Rancher Desktop, set *Preferences → Container Engine* to **dockerd
-  (moby)** -- containerd has no Docker-compatible API, so Testcontainers cannot
-  use it. On Windows, also set the environment variable
-  `DOCKER_HOST=npipe:////./pipe/docker_engine` so Testcontainers can find it.
-  See [ADR 0012](docs/decisions/0012-rancher-desktop-for-local-containers.md).
-- **Configuration:** `cp .env.example .env`, then set `ADMIN_TOKEN` (the file
-  shows how to generate one). This one file configures both Docker Compose and
-  the API.
-- **Simulator:** `python -m venv simulator/.venv`, activate it, then
-  `pip install -r simulator/requirements-dev.txt`.
-- **Secret scanning on commit:** install [gitleaks](https://github.com/gitleaks/gitleaks)
-  (`winget install Gitleaks.Gitleaks`), then `git config core.hooksPath .githooks`
-  once per clone. The pre-commit hook scans what you stage and refuses a commit
-  that adds a key, token or password. CI scans the full history again on every
-  push, since a local hook can be skipped.
-- **Front end:** Node.js 24 LTS, then `cd frontend && npm install`. The dev
-  server watches files by polling, because native file watching fails on the
-  network drive this repository is developed on. On a local disk, set
-  `VITE_NATIVE_WATCH=true` for the faster native watcher.
-
-### Running it
+## Development
 
 ```bash
-docker compose up -d                                  # PostgreSQL :5432, Prometheus :9090, Grafana :3000
-cd backend && ./mvnw spring-boot:run                  # API on :8080, configured from ../.env
-python simulator/sim.py --seed-bins 3                 # bins + devices; keys saved to simulator/.devices.json
-python simulator/sim.py --scenario normal --interval 10
-python simulator/sim.py --scenario flaky --cycles 20  # duplicates, reordering, skipped intervals
-python simulator/sim.py --scenario hotspot --bins 1   # replays 5 days (~2 min), then live: RATE_OF_RISE
-python simulator/sim.py --scenario wet --bins 1       # replays 1 day: HIGH_MOISTURE
-python simulator/sim.py --scenario offline --bins 1   # 5 samples, then silence: DEVICE_OFFLINE
-```
+cp .env.example .env                    # then set ADMIN_TOKEN
+git config core.hooksPath .githooks     # secret scanning on every commit; needs gitleaks
+docker compose up -d                    # Postgres :5432, Prometheus :9090, Grafana :3000
+cd backend && ./mvnw spring-boot:run    # the API on :8080, configured from ../.env
+cd frontend && npm install && npm run dev
+pip install -r simulator/requirements-dev.txt   # in simulator/.venv
 
-To see scheduled alerts sooner, start the API with shorter checks:
-`APP_ALERTS_RATE_OF_RISE_CHECK_INTERVAL=5s APP_ALERTS_OFFLINE_CHECK_INTERVAL=5s ./mvnw spring-boot:run`.
-
-**The production image, locally:** instead of `./mvnw spring-boot:run`, run
-`docker compose --profile api up -d --build`. It builds `backend/Dockerfile` and
-runs it on the same port, 8080, against the Compose database, so the
-dashboard, the simulator and Prometheus need no change. Run one or the other,
-not both. Its logs are JSON, as in production: `docker compose logs -f api`.
-
-The dashboard: `cd frontend && npm run dev`, then open http://localhost:5173 and
-sign in with the `ADMIN_TOKEN` from `.env`.
-
-**Monitoring:** open http://localhost:3000 for the *Grain Bin Telemetry* Grafana dashboard -- readings per second by outcome, ingest requests and latency percentiles, and alert transitions. Viewing needs no login; the `admin` account, for editing, uses `GRAFANA_ADMIN_PASSWORD` from `.env`. Prometheus scrapes the API on the host every 15 seconds as `host.docker.internal:8080`; if the dashboard's *API scrape* panel says DOWN, check http://localhost:9090 under *Status > Targets*.
-
-The Prometheus and Grafana configuration under `ops/` is **built into their images**, not mounted: the Docker engine inside Rancher Desktop cannot mount files from the network drive this repository is developed on. After editing anything under `ops/`, run `docker compose up -d --build`. See [ADR 0021](docs/decisions/0021-local-tooling-on-a-network-drive.md). The dashboard is provisioned from `ops/grafana/dashboards/grain-telemetry.json`; to change it, edit in Grafana as admin, export the JSON, and replace that file.
-
-`docker compose up` running everything, including the API container, arrives in
-Milestone 3 with the Dockerfile.
-
-Configuration comes from environment variables (see `.env.example`): `DB_URL`, `DB_USER`, `DB_PASSWORD`, `ADMIN_TOKEN`, `CORS_ALLOWED_ORIGINS`, `GRAFANA_ADMIN_PASSWORD`, and optionally `APP_INGEST_MAX_SAMPLE_AGE`, `APP_ALERTS_OFFLINE_CHECK_INTERVAL` and `APP_ALERTS_RATE_OF_RISE_CHECK_INTERVAL` (defaults `1m` and `5m`; shorten them for a demo). Never commit `.env`. `CORS_ALLOWED_ORIGINS` lists the exact origins a browser may call the API from, such as the dashboard's `http://localhost:5173`; empty allows none, and wildcards are refused. Why CORS runs before authentication: [ADR 0017](docs/decisions/0017-cors-filter-before-authentication.md).
-
-Spring Boot does not read `.env` files by itself. `./mvnw spring-boot:run` switches on a `local` profile that imports the root `.env`, so the API and Compose always agree -- change the database password there and both sides see it. A variable exported in the shell still wins. The tests never activate that profile, so a developer's `.env` cannot change what they see.
-
-### Checks that must pass before any milestone is considered done
-
-```bash
-cd backend && ./mvnw verify                         # unit + Testcontainers integration tests
+cd backend && ./mvnw verify             # unit tests, and integration tests on Testcontainers
 cd frontend && npm run lint && npm run build && npm test
-cd simulator && pytest                             # with simulator/.venv activated
+cd simulator && pytest
 docker build -t grain-telemetry-api backend/
 terraform -chdir=infra/terraform fmt -check && terraform -chdir=infra/terraform validate
 ```
 
----
+**Notes:**
+- **Port 8080:** the host-run API and the `api` Compose profile both use it, so run one or the other.
+- **Docker for the backend tests:** Testcontainers needs a Docker-compatible engine. With Rancher Desktop, that means the dockerd (moby) engine ([ADR 0012](docs/decisions/0012-rancher-desktop-for-local-containers.md)).
+- **Rebuild after editing `ops/`:** the Prometheus and Grafana config is built into their images, not mounted, so run `docker compose up -d --build` ([ADR 0021](docs/decisions/0021-local-tooling-on-a-network-drive.md)).
 
-## Container image
-
-The backend Dockerfile must:
-
-- Use a multi-stage build: a JDK stage builds the jar, and a JRE stage (Eclipse Temurin) runs it.
-- Use Spring Boot layered jars so dependency layers cache between builds.
-- Run as a non-root user.
-- Expose 8080 and define a `HEALTHCHECK` against `/actuator/health`.
-- Pin base images by tag. Add a comment explaining how to pin by digest.
-- Come with a `.dockerignore`.
-
-Target an image size under 250 MB. Record the actual size in `docs/results.md`.
-
----
-
-## CI/CD (GitHub Actions)
-
-- **`ci.yml`** runs on pull requests and on pushes to `main`. It covers a gitleaks secret scan of the full history, backend `verify`, frontend lint, test, and build, simulator `pytest`, Docker build, `terraform fmt -check`, and `validate`. It uses Maven and npm caching.
-- **`plan.yml`** runs on pull requests that touch `infra/**`. It runs `terraform plan` and posts the output as a PR comment.
-- **`deploy.yml`** runs on pushes to `main` after CI passes. It:
-  - builds and pushes the image to ECR, tagged with the git SHA
-  - runs `terraform apply`
-  - forces a new ECS deployment
-  - syncs the front-end build to S3 and invalidates CloudFront
-- AWS authentication uses GitHub OIDC (`aws-actions/configure-aws-credentials` with a role ARN). The IAM role trust policy is scoped to this repository and the `main` branch. No AWS access keys are stored in GitHub.
-
----
-
-## AWS infrastructure (Terraform)
-
-Region: `ca-central-1`. Split files by concern: `network.tf`, `ecr.tf`, `ecs.tf`, `rds.tf`, `alb.tf`, `frontend.tf`, `iam_github_oidc.tf`, `observability.tf`, `budgets.tf`, `variables.tf`, `outputs.tf`.
-
-- **Network:** a VPC across 2 AZs, with public subnets for the ALB and ECS tasks and private subnets for RDS. **No NAT gateway** (for cost). ECS tasks get public IPs, and their security group allows inbound traffic only from the ALB. Document this tradeoff in an ADR.
-- **RDS:** PostgreSQL on the smallest burstable instance class, single-AZ, in private subnets, reachable only from the ECS security group. Use `manage_master_user_password = true` so the password lives in Secrets Manager.
-- **ECS:** a Fargate service with 1 task by default. The task definition reads DB credentials and `ADMIN_TOKEN` from Secrets Manager, and logs go to CloudWatch.
-- **ALB:** HTTPS if a domain and ACM certificate are provided through variables. Otherwise it serves HTTP and the README says so.
-- **Front end:** a private S3 bucket behind CloudFront with Origin Access Control.
-- **Observability:** CloudWatch alarms for 5xx rate on the ALB, ECS CPU, and RDS free storage.
-- **Budgets:** an AWS Budgets alert that emails a configurable address at a configurable monthly limit. **Create this first.**
-- **State:** remote state in S3 with `use_lockfile = true`. The state bucket is bootstrapped once by hand or by a tiny separate config in `infra/bootstrap/`.
-
-**Cost discipline:** `terraform destroy` when not demoing. The ALB and RDS cost money even when idle.
-
----
-
-## Load testing
-
-`load-tests/k6/ingest.js` ramps virtual devices that each post a batch every few seconds, using unique `seq` values per device, plus a small percentage of deliberate duplicates.
-
-- Report requests per second, readings per second, p95 and p99 latency, error rate, and duplicate-detection correctness.
-- Run it locally and against AWS. Record both runs in `docs/results.md`, with the environment (instance sizes, task count) and the date.
-- These numbers are meant to be quoted, so the methodology must be written down and reproducible.
-
----
-
-## Milestones
-
-Work in order. Each milestone ends with every check above passing and a short summary of what changed.
-
-### Milestone 1: Core service (week 1)
-- [x] Maven project with Spring Boot, Actuator, Web, Validation, JDBC or JPA (pick one and justify it in an ADR), Flyway, and Testcontainers -- JDBC, see [ADR 0008](docs/decisions/0008-spring-jdbc-over-jpa.md)
-- [x] Flyway schema for bins, devices, partitioned readings, and alerts, with partition creation handled
-- [x] Admin endpoints for bins and device registration (API key hashing)
-- [x] Ingest endpoint with idempotency, batch limits, and future-timestamp rejection
-- [x] `latest` and bucketed `readings` query endpoints
-- [x] Testcontainers integration tests covering duplicates, out-of-order samples, and a missing partition
-- [x] `docker-compose.yml` for Postgres
-- [x] Simulator with `--seed-bins`, `normal`, and `flaky` scenarios
-
-### Milestone 2: Alerts and dashboard (week 2)
-- [x] Alert engine with all four types, dedupe, auto-resolve, and metrics
-- [x] Simulator `hotspot`, `wet`, and `offline` scenarios, and a test that each one produces the expected alert
-- [x] React + TypeScript dashboard: bin list, bin detail (grid and charts), alerts view
-- [x] Prometheus and Grafana in Compose, with a provisioned dashboard for ingest rate, latency, and alert transitions
-
-### Milestone 3: Containers, CI/CD, AWS (week 3)
-- [x] Production Dockerfile meeting the requirements above -- 239.6 MB, see [docs/results.md](docs/results.md)
-- [ ] `ci.yml` green on a pull request
-- [ ] Terraform bootstrap and main stack. `budgets.tf` is applied first.
-- [ ] GitHub OIDC role, plus `plan.yml` and `deploy.yml`
-- [ ] First successful deploy. Seed bins and run the simulator against the ALB URL.
-
-### Milestone 4: Proof and polish (week 4)
-- [ ] k6 load test run locally and in AWS, with results in `docs/results.md`
-- [ ] CloudWatch alarms
-- [ ] `docs/architecture.md` with a diagram and a request walkthrough (ingest → alert)
-- [ ] README updated with screenshots, the live-demo note, and the results summary
-
-### Stretch goals (in priority order)
-- [ ] Helm chart deployed to a local k3d cluster (documented, not deployed to AWS)
-- [ ] SQS buffer between the ALB and the database writer for ingest spikes
-- [ ] MQTT ingest via AWS IoT Core, to bridge to a future embedded CAN-bus sensor project
-- [ ] Playwright end-to-end smoke test in CI
+Configuration, monitoring, shorter alert checks for demos and the rest are in
+[docs/setup.md](docs/setup.md).

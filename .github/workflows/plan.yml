@@ -26,7 +26,7 @@ concurrency:
 env:
   AWS_REGION: ca-central-1
   TF_IN_AUTOMATION: 'true'
-  # Inputs without defaults, from repository settings (see infra/README.md).
+  # Inputs without defaults, from repository settings (see infra/terraform/README.md).
   TF_VAR_alert_email: ${{ secrets.ALERT_EMAIL }}
 
 jobs:

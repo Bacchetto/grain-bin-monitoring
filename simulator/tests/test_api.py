@@ -43,8 +43,8 @@ SAMPLE = Sample(
 def test_payload_matches_the_readme_contract_exactly():
     payload = readings_payload([SAMPLE])
 
-    # Byte-for-byte the README's field names. The backend has a matching test
-    # that posts the README example verbatim; between them, a rename on either
+    # Byte-for-byte the spec's field names. The backend has a matching test
+    # that posts the spec example verbatim; between them, a rename on either
     # side fails a test.
     assert payload == {
         "samples": [{

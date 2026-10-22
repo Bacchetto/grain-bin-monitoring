@@ -36,7 +36,7 @@ import java.util.List;
 public record IngestRequest(@NotEmpty List<@NotNull @Valid Sample> samples) {
 
 	/**
-	 * Upper bound on sensors in one sample. The README does not specify one, but
+	 * Upper bound on sensors in one sample. The spec does not specify one, but
 	 * without it a single sample could carry an unbounded number of rows and the
 	 * 500-sample batch limit would bound nothing. Real grain cables carry a few
 	 * dozen sensors per bin; 256 is generous without being unbounded, and caps a

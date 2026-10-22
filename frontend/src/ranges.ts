@@ -1,7 +1,7 @@
 import type { Bucket } from './api/types'
 
 /**
- * The chart ranges the README asks for, and the bucket each is fetched in.
+ * The chart ranges the spec asks for, and the bucket each is fetched in.
  * Hourly for a day or a week (24 and 168 points); daily for a month, where
  * 720 hourly points would be more than a chart this size can show.
  */

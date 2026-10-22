@@ -101,7 +101,7 @@ HOT_CABLE, HOT_DEPTH = 1, 3
 # with the 24 h that ended 72 h ago. After two days of warming, the daily
 # averages are about 2.25 degrees apart -- over the 2.0 threshold -- while the
 # sensor itself is still near 13 degrees, far below HIGH_TEMPERATURE's 20.
-# That ordering is the point of the scenario (README): RATE_OF_RISE is the
+# That ordering is the point of the scenario (spec): RATE_OF_RISE is the
 # early warning. The backend's RateOfRiseEvaluatorIntegrationTest uses the
 # same shape.
 HOTSPOT_STEADY = timedelta(hours=72)

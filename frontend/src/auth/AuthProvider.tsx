@@ -7,7 +7,7 @@ import { AuthContext, type Auth } from './authContext'
  * Holds the admin token, and the data fetched with it.
  *
  * THE TOKEN LIVES IN MEMORY ONLY -- React state, never localStorage or a
- * cookie (README). Anything in localStorage can be read by any script that
+ * cookie (spec). Anything in localStorage can be read by any script that
  * ever runs on the page, including an injected one, and it outlives the tab.
  * The cost is that reloading the page asks for the token again. For a
  * token that grants every admin action, that is the right trade.

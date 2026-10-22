@@ -53,7 +53,7 @@ public class AlertController {
 	/**
 	 * Alerts, newest detection first.
 	 *
-	 * <p>{@code status} takes one value, as the README specifies --
+	 * <p>{@code status} takes one value, as the spec says --
 	 * {@code open}, {@code acknowledged} or {@code resolved} -- or several,
 	 * comma-separated: {@code status=open,acknowledged} is exactly what the
 	 * dashboard's alerts view shows. Omitted, it means every status.

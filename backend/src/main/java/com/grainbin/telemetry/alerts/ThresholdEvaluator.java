@@ -48,7 +48,7 @@ import java.util.stream.Collectors;
  * </ol>
  *
  * <p>A threshold is breached when the value is strictly <em>above</em> it,
- * which is how the README words both rules.
+ * which is how the spec words both rules.
  *
  * <p>The cost on a healthy bin is three small indexed reads -- thresholds,
  * open alerts, newer readings -- and no writes at all. Writes happen only

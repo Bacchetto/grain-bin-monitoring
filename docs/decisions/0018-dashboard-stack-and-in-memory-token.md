@@ -5,7 +5,7 @@
 
 ## Context
 
-The README fixes React, TypeScript, Vite and Recharts, with strict mode on, and
+The spec fixes React, TypeScript, Vite and Recharts, with strict mode on, and
 says the admin token must be kept in memory only, never in `localStorage`. It
 leaves routing, data fetching, testing and linting open. The owner is newer to
 TypeScript, so every library is another thing to explain.
@@ -35,7 +35,7 @@ retries and cache invalidation.
 
 **`localStorage` for the token.** Survives reloads, but anything in it is
 readable by any script that ever runs on the page, and it outlives the tab.
-Excluded by the README.
+Excluded by the spec.
 
 **Retry every failed request.** TanStack's default. Replaced: only network
 failures and 5xx responses are retried, because a 4xx gets the same answer
