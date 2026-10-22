@@ -106,7 +106,10 @@ resource "aws_cloudfront_function" "spa_rewrite" {
   name    = "${var.name}-spa-rewrite"
   runtime = "cloudfront-js-2.0"
   comment = "Serve index.html for the dashboard's client-side routes"
-  code    = file("${path.module}/spa-rewrite.js")
+  # Normalised to LF. A Windows checkout gives the file CRLF line endings
+  # (core.autocrlf) and CI's Linux checkout gives LF, so without this every
+  # apply from the other machine would show the function as changed.
+  code    = replace(file("${path.module}/spa-rewrite.js"), "\r\n", "\n")
   publish = true
 }
 

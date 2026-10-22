@@ -90,32 +90,48 @@ After the first apply, two workflows take over:
 | `deploy.yml` | CI passing on `main` | **After the owner approves:** build and push the image, `terraform apply`, roll ECS, publish the dashboard, invalidate CloudFront |
 
 They authenticate with GitHub OIDC -- no AWS keys are stored in GitHub. They
-need five settings in the repository, made once after the first apply (the
+need six settings in the repository, made once after the first apply (the
 role ARNs come from `terraform output`):
 
 | Setting | Kind | Value |
 |---|---|---|
-| `AWS_PLAN_ROLE_ARN` | Variable | `terraform output -raw github_plan_role_arn` |
-| `AWS_DEPLOY_ROLE_ARN` | Variable | `terraform output -raw github_deploy_role_arn` |
-| `TF_STATE_BUCKET` | Variable | the state bucket's name, as in `backend.hcl` |
+| `AWS_PLAN_ROLE_ARN` | Secret | `terraform output -raw github_plan_role_arn` |
+| `AWS_DEPLOY_ROLE_ARN` | Secret | `terraform output -raw github_deploy_role_arn` |
+| `TF_STATE_BUCKET` | Secret | the state bucket's name, as in `backend.hcl` |
 | `ALERT_EMAIL` | Secret | the same address as `alert_email` in `terraform.tfvars` |
+| `AWS_WORKFLOWS_ENABLED` | Variable | `true` |
 | `production` | Environment | **Required reviewers: the owner.** This is the approval gate |
 
-With the GitHub CLI:
+**Why secrets, when role ARNs aren't sensitive?** They contain the account ID,
+which this public repository keeps out of view, and workflow logs are public.
+GitHub masks secrets everywhere they would be printed, including the inputs a
+step lists before it runs, which is where a role ARN in a variable showed up in
+full. `AWS_WORKFLOWS_ENABLED` exists because a job's `if:` cannot read secrets.
+
+With the GitHub CLI, from this directory:
 
 ```powershell
-gh variable set AWS_PLAN_ROLE_ARN   --body (terraform output -raw github_plan_role_arn)
-gh variable set AWS_DEPLOY_ROLE_ARN --body (terraform output -raw github_deploy_role_arn)
-gh variable set TF_STATE_BUCKET     --body grain-bin-tfstate-<ACCOUNT_ID>-ca-central-1
-gh secret set ALERT_EMAIL                      # prompts for the value
+gh secret set AWS_PLAN_ROLE_ARN   --body (terraform output -raw github_plan_role_arn)
+gh secret set AWS_DEPLOY_ROLE_ARN --body (terraform output -raw github_deploy_role_arn)
+gh secret set TF_STATE_BUCKET     --body grain-bin-tfstate-<ACCOUNT_ID>-ca-central-1
+gh secret set ALERT_EMAIL                          # prompts for the value
+gh variable set AWS_WORKFLOWS_ENABLED --body true
 ```
 
 The `production` environment is easiest in the browser: **Settings →
 Environments → New environment → `production` → Required reviewers**, add
 yourself, and restrict **Deployment branches** to `main`.
 
-Until the role variables exist, both workflows skip themselves, so merging
-them before the stack exists is harmless.
+Until `AWS_WORKFLOWS_ENABLED` is `true`, both workflows skip themselves, so
+merging them before the stack exists is harmless.
+
+**The roles trust GitHub's immutable subjects.** This repository's tokens name
+it with numeric IDs as well as names
+(`repo:Bacchetto@51663220/grain-bin-monitoring@1400530202:...`), and the trust
+policies in `iam_github_oidc.tf` match that exactly. If the repository is ever
+recreated, its new ID goes in `github_repository_id` (from
+`gh api repos/Bacchetto/grain-bin-monitoring --jq .id`) and the change is
+applied by hand, since no workflow can assume the roles until it is.
 
 **A deploy always runs one task** (`desired_count=1`), which is also how the
 service starts after the first apply's `desired_count=0`.

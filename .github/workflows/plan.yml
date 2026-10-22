@@ -34,9 +34,10 @@ jobs:
     name: terraform plan
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    # Until the stack's first apply creates the plan role and its ARN is
-    # saved as a repository variable, there is nothing to plan with.
-    if: vars.AWS_PLAN_ROLE_ARN != ''
+    # Until the stack's first apply creates the plan role and the repository
+    # settings are made, there is nothing to plan with. A plain variable, not
+    # the role secret: GitHub does not allow secrets in a job's `if`.
+    if: vars.AWS_WORKFLOWS_ENABLED == 'true'
     defaults:
       run:
         working-directory: infra/terraform
@@ -51,12 +52,19 @@ jobs:
 
       - uses: aws-actions/configure-aws-credentials@v6
         with:
-          role-to-assume: ${{ vars.AWS_PLAN_ROLE_ARN }}
+          # A secret, not a variable, because the ARN contains the account ID
+          # and this step prints its inputs before the masking below starts.
+          # Secrets are always masked.
+          role-to-assume: ${{ secrets.AWS_PLAN_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
+          # Workflow logs are public in a public repository, and the plan is
+          # full of ARNs. This shows the account ID as *** in every later log
+          # line. It does not cover the PR comment; the plan step does that.
+          mask-aws-account-id: true
 
       # The state bucket's name holds the account ID, so it comes from a
-      # repository variable rather than the code (infra/terraform/versions.tf).
-      - run: terraform init -input=false -backend-config="bucket=${{ vars.TF_STATE_BUCKET }}"
+      # repository secret rather than the code (infra/terraform/versions.tf).
+      - run: terraform init -input=false -backend-config="bucket=${{ secrets.TF_STATE_BUCKET }}"
 
       # Plan against what is actually running. The image tag and task count
       # are set by deploy.yml, not by the code; planning with the defaults
@@ -92,6 +100,10 @@ jobs:
           [ -n "${{ steps.deployed.outputs.desired_count }}" ] && args+=(-var "desired_count=${{ steps.deployed.outputs.desired_count }}")
           terraform plan "${args[@]}" > plan.txt 2>&1
           status=$?
+          # The comment is posted through the API, which log masking does not
+          # reach, so take the account ID out of the text itself.
+          account=$(aws sts get-caller-identity --query Account --output text)
+          sed -i "s/$account/<ACCOUNT_ID>/g" plan.txt
           cat plan.txt
           exit $status
 
