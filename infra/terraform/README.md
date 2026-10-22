@@ -39,18 +39,26 @@ alerts once it is running.
 **Destroy it when not demoing** (spec: cost discipline). An hour of demo
 costs a few cents; a forgotten month costs the table above.
 
-## Applying it (the owner does this -- Milestone 3 Phase 6)
+## Bringing it up (the owner does this)
 
-Run from the repository root in PowerShell, signed in with the admin
-session. `terraform.tfvars` is git-ignored; copy it from the example first.
+The same steps work the first time and every time after a destroy. A destroy
+removes the OIDC roles along with everything else, so no workflow can bring the
+stack back: the first apply is always by hand.
+
+Run them from the repository root in PowerShell, in a **new window** signed in
+with the admin session. When you're done, close the window rather than running
+`aws sso logout`: logout signs out *every* SSO session on the machine,
+including the read-only one, while a closed window just lets the admin token
+expire. `terraform.tfvars` and `backend.hcl` are git-ignored. Copy them from the
+examples the first time.
 
 ```powershell
 aws sso login --sso-session grain-admin
 $env:AWS_PROFILE = "grain-admin"
 $env:TF_DATA_DIR = "$env:LOCALAPPDATA\grain-bin-terraform\main"   # see ADR 0021
 cd infra\terraform
-copy terraform.tfvars.example terraform.tfvars                        # then edit alert_email
-copy backend.hcl.example backend.hcl                                  # then put in the account ID
+copy terraform.tfvars.example terraform.tfvars                        # first time: then edit alert_email
+copy backend.hcl.example backend.hcl                                  # first time: then put in the account ID
 terraform init "-backend-config=backend.hcl"   # quoted: PowerShell splits it at the dot otherwise
 
 # 1. The budget first, so the alert exists before anything costs money.
@@ -59,26 +67,50 @@ terraform apply budget.tfplan
 
 # 2. Everything else, with no API task yet: the image registry is created by
 #    this same apply, so there is no image for a task to start from.
-terraform plan -var desired_count=0 -out main.tfplan      # read it: ~57 to add
+terraform plan -var desired_count=0 -out main.tfplan      # read it: 70 to add after the budget
 terraform apply main.tfplan                               # 15-25 minutes: RDS and CloudFront are slow
-
-# 3. The first image and the dashboard: deploy.yml does this (Phase 5 and 6).
-
-aws sso logout
-aws sso login --sso-session grain
 ```
 
-Afterwards: confirm the SNS subscription email AWS sends to `alert_email`, or
-alarms will not be delivered.
+Then:
 
-**To see the admin token** (to sign in to the dashboard):
+1. **Confirm the SNS subscription email** that AWS sends to `alert_email`, or
+   alarms will not be delivered. It comes from `no-reply@sns.amazonaws.com`.
+2. **Switch the workflows on:** `gh variable set AWS_WORKFLOWS_ENABLED --body true`.
+   The secrets survive a destroy. Update them only if a value changed: the role
+   ARNs keep their names, and the state bucket is the bootstrap's.
+3. **Deploy:** merge anything to `main`, or re-run the latest Deploy run, and
+   approve it. That builds and pushes the image, applies with one task, and
+   publishes the dashboard. The CloudFront address is new each time the stack is
+   created; `terraform output -raw site_url` prints it.
+
+**To see the admin token** (to sign in to the dashboard, or for
+`sim.py --admin-token`). The read-only role cannot read secret values, on
+purpose:
 
 ```powershell
 aws secretsmanager get-secret-value --secret-id grain-bin/admin-token --query SecretString --output text --profile grain-admin
 ```
 
-**To tear it all down:** `terraform destroy`, with the same environment
-variables. The state bucket (bootstrap) is not affected.
+## Tearing it down
+
+```powershell
+terraform plan -destroy -out destroy.tfplan    # with the same environment variables as above
+terraform apply destroy.tfplan                 # 15-20 minutes; CloudFront is the slow part
+gh variable set AWS_WORKFLOWS_ENABLED --body false
+```
+
+Everything goes, including the budget and the OIDC roles: ECR and the dashboard
+bucket are emptied first (`force_delete`, `force_destroy`), RDS keeps no final
+snapshot, and the admin-token secret is deleted immediately, so the stack can
+be recreated under the same names straight away. The state bucket (bootstrap)
+is not affected. Switching the workflows off stops them failing for want of the
+roles.
+
+## Deploy history
+
+| Date | Commit | What happened |
+|---|---|---|
+| 2026-10-22 | `431e8ca` | **First deploy.** The main stack was applied by hand with no task (71 resources), then `deploy.yml` ran after approval in about 4 minutes. One task became healthy; Flyway applied V1-V5 to the empty database. Checks: the dashboard and deep links served, `/api/v1/bins` returned 401 without a token, and `/actuator/prometheus` was not reachable. The simulator seeded 3 bins and ran `normal`, `hotspot` and `offline` against the CloudFront URL, and `DEVICE_OFFLINE`, its auto-resolve, and `RATE_OF_RISE` all fired as designed. About 100 requests, 0 server errors, p50 12 ms and p95 192 ms at the load balancer. Destroyed the same evening. Found and fixed on the way, in #19: the trust policies now match GitHub's immutable OIDC subjects, and the account ID is kept out of workflow logs and plan comments. |
 
 ## Deploying through GitHub Actions
 
