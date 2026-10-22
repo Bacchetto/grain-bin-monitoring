@@ -19,6 +19,21 @@ variable "github_repository" {
   default     = "Bacchetto/grain-bin-monitoring"
 }
 
+# GitHub's numeric IDs for the owner and the repository. They are public
+# (https://api.github.com/repos/Bacchetto/grain-bin-monitoring shows both) and,
+# unlike names, never reused: see the trust policy in iam_github_oidc.tf.
+variable "github_owner_id" {
+  description = "Numeric ID of the repository owner's GitHub account."
+  type        = number
+  default     = 51663220
+}
+
+variable "github_repository_id" {
+  description = "Numeric ID of the GitHub repository."
+  type        = number
+  default     = 1400530202
+}
+
 # ---------------------------------------------------------------------------
 # Deployment
 # ---------------------------------------------------------------------------

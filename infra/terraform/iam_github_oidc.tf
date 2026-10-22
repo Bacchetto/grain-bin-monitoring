@@ -25,21 +25,32 @@ resource "aws_iam_openid_connect_provider" "github" {
 
 locals {
   github_oidc = "token.actions.githubusercontent.com"
-  repo        = var.github_repository
-  account_id  = data.aws_caller_identity.current.account_id
-  state_arn   = "arn:aws:s3:::grain-bin-tfstate-${local.account_id}-${var.region}"
+  owner       = split("/", var.github_repository)[0]
+  repo_name   = split("/", var.github_repository)[1]
+  # "Bacchetto@51663220/grain-bin-monitoring@1400530202": owner and
+  # repository, each followed by its numeric ID.
+  repo_subject = "${local.owner}@${var.github_owner_id}/${local.repo_name}@${var.github_repository_id}"
+  account_id   = data.aws_caller_identity.current.account_id
+  state_arn    = "arn:aws:s3:::grain-bin-tfstate-${local.account_id}-${var.region}"
 }
 
 # A trust policy for GitHub tokens whose "sub" (subject) claim matches.
-# The subject names exactly where the job came from, e.g.
-#   repo:Bacchetto/grain-bin-monitoring:pull_request
-#   repo:Bacchetto/grain-bin-monitoring:environment:production
+# The subject names exactly where the job came from:
+#   repo:Bacchetto@51663220/grain-bin-monitoring@1400530202:pull_request
+#   repo:Bacchetto@51663220/grain-bin-monitoring@1400530202:environment:production
 # StringEquals, not StringLike: no wildcards, so no other repository, fork or
 # branch can ever match.
+#
+# IMMUTABLE SUBJECTS. This repository's tokens carry the owner's and the
+# repository's numeric IDs as well as their names (GitHub's immutable subject
+# format, the default for repositories created since it was introduced). It is
+# the safer form: if this repository were deleted, or renamed, a new one
+# created under the same name has a different ID, so it can never assume
+# these roles. A trust policy written for names alone would trust it.
 data "aws_iam_policy_document" "github_trust" {
   for_each = {
-    plan   = "repo:${local.repo}:pull_request"
-    deploy = "repo:${local.repo}:environment:production"
+    plan   = "repo:${local.repo_subject}:pull_request"
+    deploy = "repo:${local.repo_subject}:environment:production"
   }
 
   statement {
