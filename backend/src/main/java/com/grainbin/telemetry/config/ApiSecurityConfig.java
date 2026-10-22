@@ -40,8 +40,7 @@ import org.springframework.core.Ordered;
  * token and a key-hash lookup, which is about sixty lines of behaviour. Adding
  * the framework would mean explaining its filter chain, its authentication
  * manager and its context propagation in order to justify sixty lines, and the
- * project's working agreement is explicit that every part has to be
- * explainable. Recorded in
+ * project's rule is that every part has to be explainable. Recorded in
  * {@code docs/decisions/0003-filter-based-auth.md}.
  *
  * <p>The cost is that it has to be got right by hand -- constant-time
