@@ -35,7 +35,7 @@ Prometheus scrape have no credential to present, and only `health` and
 anything with users and roles. Here it would mean adding a framework whose
 filter chain, `AuthenticationManager`, `SecurityContext` propagation and
 configuration DSL all have to be understood and explained -- in order to
-justify about sixty lines of behaviour. The project's working agreement is that
+justify about sixty lines of behaviour. The project's rule is that
 the owner must be able to explain every part of this system, and a dependency
 whose concepts outnumber the requirements works against that.
 

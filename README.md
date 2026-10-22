@@ -4,7 +4,7 @@ A backend service and dashboard for monitoring stored grain. Sensor cables hang 
 
 This project demonstrates production-style backend engineering end to end: API design, data modeling, testing, containerization, CI/CD, infrastructure as code on AWS, observability, and load testing.
 
-> **Note for Claude Code:** This README is the project spec. Read the whole file before writing code, then work through the [Milestones](#milestones) in order. See [Working agreement](#working-agreement) at the bottom.
+> **Note for Claude Code:** This README is the project spec. Read the whole file before writing code, then work through the [Milestones](#milestones) in order.
 
 ---
 
@@ -439,21 +439,3 @@ Work in order. Each milestone ends with every check above passing and a short su
 - [ ] SQS buffer between the ALB and the database writer for ingest spikes
 - [ ] MQTT ingest via AWS IoT Core, to bridge to a future embedded CAN-bus sensor project
 - [ ] Playwright end-to-end smoke test in CI
-
----
-
-## Working agreement
-
-Every part of this project should be explainable by the people working on it. Optimize for clarity and learnability over cleverness.
-
-1. **Go one milestone at a time.** At the end of each milestone, stop and summarize what was built, what is left, and any decisions made. Do not start the next milestone until asked.
-2. **Record decisions.** Any non-obvious choice gets a short ADR in `docs/decisions/` covering context, decision, alternatives, and consequences. Examples: JDBC vs JPA, partitioning strategy, no NAT gateway, admin-token auth.
-3. **Explain the unfamiliar parts.** The owner is newer to AWS, Terraform, GitHub Actions OIDC, and TypeScript. In those areas, add concise comments explaining *why* each resource or block exists, not just what it is.
-4. **Tests come with features.** No feature is done without tests. Integration tests use Testcontainers against real Postgres. Never use H2 or mock the database for repository or ingest tests.
-5. **Keep dependencies minimal.** Do not add a library when the standard library or Spring already covers it. Justify every new dependency in the commit message.
-6. **No secrets in the repo.** Use `.env.example` for local configuration and Secrets Manager in AWS. Never print secrets in logs or CI output.
-7. **Commits.** Small, focused commits using Conventional Commits (`feat:`, `fix:`, `test:`, `infra:`, `docs:`).
-8. **Do not run `terraform apply` or `terraform destroy`,** and do not create any AWS resources. Write the code and run `fmt`, `validate`, and `plan` only. The owner applies changes manually until the pipeline is trusted.
-9. **Keep this README current.** Tick milestone checkboxes as items land, and update any section that the implementation changes.
-10. **Ask when a spec detail is ambiguous** rather than guessing. For small details, pick the simplest reasonable option and note it in the milestone summary.
-11. **Branches and pull requests.** Push feature branches and open pull requests freely, without asking first. **Pushing to `main`, or merging anything into `main`, always needs the owner's explicit approval, every time** -- a push to `main` runs `deploy.yml`, and merging is the owner's review.
