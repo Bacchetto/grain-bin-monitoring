@@ -61,7 +61,7 @@ describe('signing in', () => {
     await signIn()
     await screen.findByRole('table')
 
-    // The README's rule: memory only. Anything in storage outlives the tab
+    // The spec's rule: memory only. Anything in storage outlives the tab
     // and is readable by any script on the page.
     expect(localStorage.length).toBe(0)
     expect(sessionStorage.length).toBe(0)

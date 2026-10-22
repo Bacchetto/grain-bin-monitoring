@@ -5,7 +5,7 @@
 
 ## Context
 
-The README specifies "latest stable Spring Boot". In September 2026 that is
+The spec asks for "latest stable Spring Boot". In September 2026 that is
 **4.1.1**. The 3.5 line is still supported, and far more of the documentation,
 tutorials and other material in circulation describes it.
 
@@ -31,8 +31,8 @@ that needs it lives:
 |---|---|
 | `spring-boot-starter-web` is now `spring-boot-starter-webmvc`; Flyway needs an explicit starter | `pom.xml`, Phase 2 |
 | `spring-boot-starter-test` is split into per-module `*-test` starters | `pom.xml`, Phase 2 |
-| Jackson 3 -- but only `jackson-core` and `jackson-databind` move to `tools.jackson`; `jackson-annotations` stays on `com.fasterxml` | README tech stack notes |
-| JUnit 6, with the Jupiter API unchanged | README tech stack |
+| Jackson 3 -- but only `jackson-core` and `jackson-databind` move to `tools.jackson`; `jackson-annotations` stays on `com.fasterxml` | spec tech stack notes |
+| JUnit 6, with the Jupiter API unchanged | spec tech stack |
 | `TestRestTemplate` moved to a module not on the classpath by default | Tests use `RestTestClient` instead |
 | `@LocalServerPort` moved package | `WebIntegrationTest` |
 | **Every metrics exporter is disabled by default** | `/actuator/prometheus` returned 404 until `management.prometheus.metrics.export.enabled=true` |

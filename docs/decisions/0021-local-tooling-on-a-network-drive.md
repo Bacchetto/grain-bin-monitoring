@@ -37,7 +37,7 @@ a dashboard JSON; the built image is simpler.
 ## Consequences
 
 - **After editing anything under `ops/`, run `docker compose up -d --build`.**
-  Plain `up` keeps the old image. The README and `docker-compose.yml` both say
+  Plain `up` keeps the old image. `docs/setup.md` and `docker-compose.yml` both say
   so.
 - Polling costs a little CPU while the dev server runs.
 - Both work unchanged on a local disk and in CI, so neither is a workaround

@@ -28,7 +28,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * rejected samples. Calling the evaluator directly would skip exactly the
  * part most likely to be wrong.
  *
- * <p>Each test registers its own bin, which keeps the README default
+ * <p>Each test registers its own bin, which keeps the spec default
  * thresholds: 20.0 degrees and 14.5 percent.
  */
 class ThresholdAlertIntegrationTest extends WebIntegrationTest {

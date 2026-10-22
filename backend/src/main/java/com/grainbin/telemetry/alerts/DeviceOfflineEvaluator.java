@@ -20,7 +20,7 @@ import static com.grainbin.telemetry.config.ClockConfig.APPLICATION_ZONE;
  *
  * <ul>
  *   <li>{@code last_seen_at} advances only when a reading is actually stored
- *       (README), so a device that connects but sends only duplicates or
+ *       (spec), so a device that connects but sends only duplicates or
  *       rejected data is still offline.</li>
  *   <li>It is set from the server's clock, as is {@code now}, so a device's
  *       clock skew can neither cause nor hide this alert (ADR 0005).</li>

@@ -61,7 +61,7 @@ class BinAdminIntegrationTest extends WebIntegrationTest {
 			assertThat(body.get("grainType").asString()).isEqualTo("wheat");
 			assertThat(body.get("capacityBushels").asInt()).isEqualTo(12000);
 
-			// The README's defaults. A bin is usable the moment it exists.
+			// The spec's defaults. A bin is usable the moment it exists.
 			JsonNode thresholds = body.get("thresholds");
 			assertThat(thresholds.get("maxTemperatureC").asDouble()).isEqualTo(20.0);
 			assertThat(thresholds.get("maxMoisturePct").asDouble()).isEqualTo(14.5);

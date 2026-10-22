@@ -5,7 +5,7 @@
 
 ## Context
 
-The README asks for indexes to match the API's query patterns, and for those
+The spec asks for indexes to match the API's query patterns, and for those
 indexes to be verified with `EXPLAIN ANALYZE`, with the results noted here.
 
 `V2` created two indexes on `readings` beyond the primary key, one per read

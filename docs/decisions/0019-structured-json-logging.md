@@ -5,7 +5,7 @@
 
 ## Context
 
-The README requires every alert state change to be "logged as structured
+The spec requires every alert state change to be "logged as structured
 JSON". Production logs will go to CloudWatch in Milestone 3, where JSON fields
 can be queried directly. A plain-text line needs a parsing pattern, which
 breaks whenever the message wording changes.
@@ -30,7 +30,7 @@ covered it natively since 3.4, so it would be a dependency for nothing.
 **JSON everywhere, including local development.** Accurate, but unreadable at a
 terminal.
 
-**Plain text everywhere.** Fails the README's requirement.
+**Plain text everywhere.** Fails the spec's requirement.
 
 ## Consequences
 

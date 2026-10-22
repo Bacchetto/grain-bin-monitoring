@@ -27,7 +27,7 @@ public class AlertRepository {
 
 	/**
 	 * Consecutive clear evaluations before an alert auto-resolves. From the
-	 * README: fewer would let an alert flap open and closed around a
+	 * spec: fewer would let an alert flap open and closed around a
 	 * threshold.
 	 */
 	public static final int CLEAR_EVALUATIONS_TO_RESOLVE = 3;

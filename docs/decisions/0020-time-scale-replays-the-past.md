@@ -5,7 +5,7 @@
 
 ## Context
 
-The README asks for `--time-scale` "to compress simulated time so that
+The spec asks for `--time-scale` "to compress simulated time so that
 multi-day scenarios run in minutes". The `hotspot` scenario needs about five
 days to develop: three steady days to give the rate-of-rise rule its baseline
 (ADR 0013), then two of warming.

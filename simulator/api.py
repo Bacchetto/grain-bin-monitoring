@@ -27,12 +27,12 @@ class ApiError(Exception):
 
 
 def iso_utc(at: datetime) -> str:
-    """``2026-10-01T14:00:00Z`` -- the form the README's example uses."""
+    """``2026-10-01T14:00:00Z`` -- the form the spec's example uses."""
     return at.astimezone(UTC).isoformat(timespec="seconds").replace("+00:00", "Z")
 
 
 def readings_payload(samples: list[Sample]) -> dict:
-    """The ``POST /api/v1/readings`` body, in exactly the README's shape.
+    """The ``POST /api/v1/readings`` body, in exactly the spec's shape.
 
     Kept as a pure function so the wire format can be tested without a server.
     There is no device or bin id anywhere in it: the backend takes both from the

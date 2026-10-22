@@ -5,7 +5,7 @@
 
 ## Context
 
-The README's first Milestone 1 item asks for "JDBC or JPA (pick one and justify
+The spec's first Milestone 1 item asks for "JDBC or JPA (pick one and justify
 it in an ADR)". The choice turns on what the database work actually is:
 
 - **Ingest** is the hot path: a batch of `INSERT ... ON CONFLICT DO NOTHING`

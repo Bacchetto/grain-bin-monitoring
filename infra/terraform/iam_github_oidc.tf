@@ -8,7 +8,7 @@
 # hands back temporary credentials for that role -- valid for about an hour.
 #
 # So no AWS access key is ever stored in GitHub. There is nothing long-lived
-# to leak, rotate, or forget to revoke. README requirement.
+# to leak, rotate, or forget to revoke. Spec requirement.
 #
 # TWO ROLES, least privilege for each job:
 #   plan   -- pull requests; read-only, for `terraform plan` (plan.yml)

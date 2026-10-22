@@ -18,7 +18,7 @@ ORIGIN = datetime(2026, 9, 1, 0, 0, tzinfo=UTC)
 STEP = timedelta(minutes=5)
 DAY = timedelta(days=1)
 
-# The backend's defaults (README).
+# The backend's defaults (spec).
 MAX_TEMPERATURE = 20.0
 MAX_MOISTURE = 14.5
 RISE_THRESHOLD = 2.0

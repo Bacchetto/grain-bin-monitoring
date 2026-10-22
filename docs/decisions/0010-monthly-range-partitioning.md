@@ -10,7 +10,7 @@ sensors reporting every five minutes writes about **2.5 million rows a year**
 (24 × 288 × 365), and every other table stays small by comparison.
 
 Every read the dashboard makes is bounded in time -- the latest week, or a
-chosen range -- and old data will eventually need removing. The README asks for
+chosen range -- and old data will eventually need removing. The spec asks for
 native range partitioning by `recorded_at`, one partition per month, and says an
 insert must never fail because a partition is missing.
 

@@ -2,11 +2,11 @@
 
 **Status:** Accepted, 2026-09-24
 **Applies to:** `ingest.IngestService`, `app.ingest.max-sample-age`
-**Extends:** the README's ingest rules, which define only a future-timestamp rejection
+**Extends:** the spec's ingest rules, which define only a future-timestamp rejection
 
 ## Context
 
-The README rejects samples recorded more than five minutes in the future and
+The spec rejects samples recorded more than five minutes in the future and
 says nothing about the past. Ingest therefore accepted any `recordedAt`, however
 old, and created a partition for its month on demand.
 

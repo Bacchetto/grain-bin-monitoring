@@ -33,7 +33,7 @@ containerd exposes no Docker-compatible API, so Testcontainers cannot use it.
 
 - **The engine must be dockerd.** This is the most likely thing to go wrong on a
   new machine, and the failure -- Testcontainers cannot find Docker -- looks like
-  a code problem. The README's setup section says so.
+  a code problem. `docs/setup.md` says so.
 - **On Windows, `DOCKER_HOST=npipe:////./pipe/docker_engine` is required** for
   processes running natively, including the Maven test run.
 - Rancher Desktop starts a Kubernetes cluster by default. Nothing here uses it,

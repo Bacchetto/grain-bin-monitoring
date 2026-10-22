@@ -55,7 +55,7 @@ rejected and why, so the fault stays visible rather than silently dropped.
   would need to come with it.
 - The response would need a way to say *why* each reading was rejected, since
   `rejected` alone would mix clock problems with malformed data.
-- It widens the spec's rejection rules, so the README would change too.
+- It widens the spec's rejection rules, so the spec would have to change with it.
 
 **Decision so far.** Keep the strict behaviour for now.
 

@@ -12,7 +12,7 @@ import java.util.EnumMap;
 import java.util.Map;
 
 /**
- * The one place an alert state change is reported, as the README requires:
+ * The one place an alert state change is reported, as the spec requires:
  * a structured log line and the {@code alerts_transitions_total{type,to_state}}
  * counter.
  *

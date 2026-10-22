@@ -1,4 +1,4 @@
-# A monthly cost budget, emailed to alert_email. README: "Create this
+# A monthly cost budget, emailed to alert_email. Spec: "Create this
 # first." The first apply targets this resource alone, so the budget exists
 # before anything that costs money:
 #   terraform apply -target=aws_budgets_budget.monthly

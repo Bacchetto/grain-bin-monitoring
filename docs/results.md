@@ -7,7 +7,7 @@
 
 ## Container image size
 
-Target: under 250 MB (README).
+Target: under 250 MB (spec).
 
 | Date | Base image | Uncompressed | Compressed | Notes |
 |---|---|---|---|---|

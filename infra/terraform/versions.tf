@@ -3,7 +3,7 @@
 #   cloudfront.net (HTTPS) --/api/*--> internal ALB --> ECS Fargate task --> RDS PostgreSQL
 #                          \--/*-----> S3 (the built dashboard)
 #
-# Applied by the owner, never by an assistant; see infra/README.md for the
+# Applied by the owner, never by an assistant; see infra/terraform/README.md for the
 # runbook. State lives in the bucket that infra/bootstrap created.
 
 terraform {

@@ -1,4 +1,4 @@
-# Continuous integration: every check the README requires before a milestone
+# Continuous integration: every check the spec requires before a milestone
 # is done, on every pull request and every push to main.
 #
 # The jobs run in parallel, each on a fresh Ubuntu machine. deploy.yml

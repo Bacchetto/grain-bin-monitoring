@@ -104,7 +104,7 @@ export function problem(status: number, title: string, detail: string, extra: ob
   })
 }
 
-// -- builders, with defaults matching the README's thresholds ----------------
+// -- builders, with defaults matching the spec's thresholds ----------------
 
 export function bin(overrides: Partial<BinSummary> = {}): BinSummary {
   return {

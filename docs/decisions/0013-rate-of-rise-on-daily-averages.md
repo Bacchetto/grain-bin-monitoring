@@ -2,11 +2,11 @@
 
 **Status:** Accepted, 2026-09-25 (recorded 2026-09-28)
 **Applies to:** `alerts.RateOfRiseEvaluator`
-**Refines:** the README's `RATE_OF_RISE` rule, which does not say how a rise is measured
+**Refines:** the spec's `RATE_OF_RISE` rule, which does not say how a rise is measured
 
 ## Context
 
-The README defines `RATE_OF_RISE` as a sensor's temperature having "risen at
+The spec defines `RATE_OF_RISE` as a sensor's temperature having "risen at
 least `rise_threshold_c` (default 2.0) over the trailing `rise_window_hours`
 (default 72)". It does not say what "risen" is measured between.
 

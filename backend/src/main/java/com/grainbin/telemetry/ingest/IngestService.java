@@ -61,11 +61,11 @@ import java.util.List;
 @Service
 public class IngestService {
 
-	/** From the README. Exceeding it is a 413. */
+	/** From the spec. Exceeding it is a 413. */
 	public static final int MAX_SAMPLES_PER_BATCH = 500;
 
 	/**
-	 * From the README. Anything recorded later than this past the server's
+	 * From the spec. Anything recorded later than this past the server's
 	 * clock is counted as rejected. Some skew is tolerated because device
 	 * clocks drift and are corrected only periodically.
 	 */
@@ -171,7 +171,7 @@ public class IngestService {
 			}
 			int accepted = stored.size();
 
-			// README: "Update devices.last_seen_at only after a successful
+			// Spec: "Update devices.last_seen_at only after a successful
 			// insert." A batch of nothing but duplicates is not a successful
 			// insert of anything, so it does not count as the device being seen.
 			if (accepted > 0) {

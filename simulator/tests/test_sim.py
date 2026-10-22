@@ -114,7 +114,7 @@ def test_seeding_creates_bins_and_one_device_each(tmp_path):
 def test_seeding_registers_at_least_the_backends_minimum_interval(tmp_path):
     api = FakeApi()
 
-    # 10 is the CLI's default --interval and the README's own example.
+    # 10 is the CLI's default --interval and the spec's own example.
     seed_bins(api, "u", 2, 10, tmp_path / "d.json", out=quiet)
 
     assert api.intervals == [30, 30]

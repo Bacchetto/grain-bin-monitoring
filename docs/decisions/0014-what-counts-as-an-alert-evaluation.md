@@ -5,7 +5,7 @@
 
 ## Context
 
-The README says an alert auto-resolves "when the condition has been clear for 3
+The spec says an alert auto-resolves "when the condition has been clear for 3
 consecutive evaluations", to stop it flapping. It does not say what one
 evaluation is. That matters: it decides how quickly a real alert can resolve,
 and whether something that is not a new measurement can resolve it.

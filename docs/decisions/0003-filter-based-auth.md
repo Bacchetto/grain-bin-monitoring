@@ -17,7 +17,7 @@ The admin token is a single value from an environment variable, and a device
 key is looked up by digest. The whole of the behaviour is "read a header,
 check it, either continue or return 401".
 
-The README already states that the admin token is not production-grade auth
+The spec already states that the admin token is not production-grade auth
 and asks for the tradeoff to be recorded.
 
 ## Decision
