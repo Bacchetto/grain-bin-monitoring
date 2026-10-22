@@ -53,6 +53,10 @@ jobs:
         with:
           role-to-assume: ${{ vars.AWS_PLAN_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
+          # Workflow logs are public in a public repository, and the plan is
+          # full of ARNs. This shows the account ID as *** in every later log
+          # line. It does not cover the PR comment; the plan step does that.
+          mask-aws-account-id: true
 
       # The state bucket's name holds the account ID, so it comes from a
       # repository variable rather than the code (infra/terraform/versions.tf).
@@ -92,6 +96,10 @@ jobs:
           [ -n "${{ steps.deployed.outputs.desired_count }}" ] && args+=(-var "desired_count=${{ steps.deployed.outputs.desired_count }}")
           terraform plan "${args[@]}" > plan.txt 2>&1
           status=$?
+          # The comment is posted through the API, which log masking does not
+          # reach, so take the account ID out of the text itself.
+          account=$(aws sts get-caller-identity --query Account --output text)
+          sed -i "s/$account/<ACCOUNT_ID>/g" plan.txt
           cat plan.txt
           exit $status
 
