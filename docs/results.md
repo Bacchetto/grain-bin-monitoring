@@ -38,67 +38,85 @@ the image; see enhancement E16.
 Measured 2026-10-23 with `load-tests/k6/ingest.js`. Each device posts one batch
 of 24 readings (4 cables x 6 depths) every *interval* seconds, and 5% of
 batches resend the device's previous batch. Each run ramps up over 2 minutes,
-then holds for 5 minutes; the figures are for the hold. The full summaries,
-every metric included, are in
-[`load-tests/k6/results/`](../load-tests/k6/results/).
+then holds for 5 minutes; the figures are for the hold.
 
-| Run | API container | Offered | Achieved (hold) | Readings/s | p50 | p95 | p99 | Errors | Fell behind |
-|---|---|---|---|---|---|---|---|---|---|
-| A | unlimited | 2,000 devices / 2 s = 1,000 req/s | **999.8 req/s** | 22,794 | 5.2 ms | 37.6 ms | 97.5 ms | 0 | 0 |
-| A2 | unlimited, rate-of-rise check hourly | the same | 945.5 req/s | 21,548 | 14.4 ms | 2,190 ms | 5,711 ms | 0 | 14,424 |
-| B | **0.5 vCPU, 1 GB** (the Fargate task) | 1,000 devices / 5 s = 200 req/s | **200.0 req/s** | 4,560 | 3.5 ms | 4.7 ms | 5.6 ms | 0 | 0 |
-| C | **0.5 vCPU, 1 GB** | 2,000 devices / 2 s = 1,000 req/s | **485.7 req/s** (the ceiling) | 11,062 | 4,002 ms | 5,046 ms | 6,125 ms | 0 | 186,406 |
+The figures are from **three consecutive sets of four runs** (sets 3-5,
+13:20-15:01 local time), given as the range across the sets. Earlier sets
+exposed two problems in the procedure (see "What changed between sets" below)
+and are not used. The full summaries, every metric included, are in
+[`load-tests/k6/results/2026-10-23/`](../load-tests/k6/results/2026-10-23/).
 
-**Correctness held in every run, including past saturation.**
+| Run | API container | Offered | Achieved (hold) | Readings/s | p50 | p95 | p99 | Errors |
+|---|---|---|---|---|---|---|---|---|
+| B | **0.5 vCPU, 1 GB** (the Fargate task) | 1,000 devices / 5 s = 200 req/s | **200 req/s** | 4,557-4,559 | 4.6-4.7 ms | 6.3-26.1 ms | 12.6-166 ms | 0 |
+| C | **0.5 vCPU, 1 GB** | 2,000 devices / 2 s = 1,000 req/s | **400-407 req/s** (the ceiling) | 9,118-9,268 | 4.8-4.9 s | 5.9-6.3 s | 6.7-7.9 s | 0 |
+| A | unlimited | 2,000 devices / 2 s = 1,000 req/s | **922-942 req/s** | 21,029-21,466 | 18-29 ms | 2.2-3.3 s | 6.1-6.2 s | 0 |
+| A2 | unlimited, rate-of-rise check hourly | the same | 917-936 req/s | 20,922-21,348 | 21-71 ms | 2.6-3.3 s | 6.1-6.6 s | 0 |
 
-| Run | Resent batches | Detected as duplicates | Readings accepted | Readings stored (counted in the database afterwards) |
-|---|---|---|---|---|
-| A | 18,673 | 100% | 8,549,448 | 8,549,448 |
-| A2 | 17,890 | 100% | 8,181,072 | 8,181,072 |
-| B | 3,648 | 100% | 1,712,136 | 1,712,136 |
-| C | 9,948 | 100% | 4,558,056 | 4,558,056 |
-
-No reading was rejected, and none was stored twice: every response accounted
-for every reading it was sent, and every run's stored count equals its
-accepted count exactly.
+**Correctness held in every one of the 12 runs, including far past
+saturation.** Across them: 2,846,328 requests and 140,640 resent batches,
+every resend detected as duplicates. And 64,936,512 unique readings were sent,
+of which **64,936,512 are in the database: every one stored exactly once.**
+64,936,440 were acknowledged; the other 72, three batches in the ceiling runs,
+were stored, but their responses came after k6's 10-second timeout.
 
 **What the runs show:**
 
-- **The Fargate-sized task tops out at about 490 requests a second (11,000
-  readings a second), and it is CPU-bound.** The container sat at its 0.5-CPU
-  limit while Postgres had cores to spare. Past the ceiling, requests queue,
-  mostly waiting for a database connection: about 190 ms each, on average, in
-  run C. Latency climbs to seconds and devices fall behind their cadence. But
-  nothing failed, and nothing was miscounted. A pilot run gave the same ceiling
-  (490 req/s), so the figure is stable.
-- **At 200 requests a second the same task is idle:** p99 5.6 ms, against 5.3 ms
-  in a pilot run. That is the steady state the AWS deployment should match
-  before the network is added.
-- **At 1,000 requests a second on this desktop, the limit is the local
-  Postgres's disk housekeeping, not the API.** Run A2's tail latency comes from
-  a single 60-second stall. Postgres's log shows it overlapping a 67-second
-  checkpoint. Ingesting 22,000 readings a second fills the stock image's 1 GB
-  `max_wal_size` in about a minute. So checkpoints run back to back instead of
-  every 5 minutes, and Postgres logs "checkpoints are occurring too
-  frequently". A2 also started right after 8.5 million rows were deleted from
-  the previous run, which added a burst of WAL. Two runs of the same load gave
-  p99s of 97.5 ms and 5.7 s. Run A's figures are therefore not a stable ceiling,
-  and both runs are shown. A2 was meant to test whether the scheduled
-  rate-of-rise check caused the tail. It was the run *without* that check that
-  stalled, so the check didn't.
-- **The rate-of-rise check's cost grows with the bins and with the readings in
-  its windows.** It took 5.4 seconds over 2,003 bins in run A, about 2.7 ms a
-  bin. In an earlier pass, whose bins had not been cleared between runs, it took
-  up to 127 seconds. That pass had 8,500 to 11,500 bins and up to 19.5 million
-  readings, so 11 to 15 ms a bin. At that rate, somewhere between 20,000 and
-  27,000 busy bins, the check would no longer fit in its 5-minute interval. The
-  advisory lock (ADR 0015) means overruns can't overlap, but checks would run
-  back to back (enhancement E17).
+- **The Fargate-sized task tops out at about 400 requests a second (9,200
+  readings a second).** The container sits at its 0.5-CPU limit while Postgres
+  has cores to spare. Past the ceiling, requests queue: in run C each waited
+  233-238 ms on average for a database connection, out of a pool of 10. Latency
+  climbs to seconds and devices fall behind their cadence, but nothing fails
+  and nothing is miscounted.
+- **At 200 requests a second the same task is comfortable,** with a median of
+  4.6 ms. The tail varies from set to set (p99 12.6-166 ms): the load generator
+  and both containers share one desktop. This is the steady state the AWS
+  deployment is compared against.
+- **Unlimited, at 1,000 requests a second, this desktop's limit is the local
+  Postgres's disk housekeeping, not the API.** Latency is low between stalls of
+  20-60 seconds, and the stalls line up with checkpoints. At 21,000 readings a
+  second, the stock image's 1 GB `max_wal_size` fills in about a minute, so
+  Postgres checkpoints back to back instead of every 5 minutes. During these
+  sets it started 48 WAL-triggered checkpoints and logged "checkpoints are
+  occurring too frequently" 8 times. A2, which moves the rate-of-rise check to
+  hourly so that it never runs, is no better than A. So the check isn't the
+  cause.
+- **The rate-of-rise check holds up at these sizes,** but its cost grows with
+  the bins. Over 2,003 bins it took 1.5-1.6 seconds at 200 requests a second,
+  7.0-7.2 seconds unlimited at 1,000, and 15-16 seconds on the 0.5-CPU task
+  while it was saturated. It judges bins one by one, so its cost is linear in
+  the number of bins (enhancement E17).
+
+**What changed between sets.** Five sets were run in all. The first two
+exposed two problems, and they aren't used:
+
+- **Lost responses broke the stored-count check.** In set 2, 269 requests
+  outlasted k6's 10-second timeout. The server stored all of them, so the
+  stored count exceeded the acknowledged count by exactly those 260 fresh
+  batches. Nothing was stored twice, but the check, which required stored to
+  equal accepted, called it a failure. The check now requires every *unique*
+  reading sent to be stored exactly once, with stored between accepted and
+  unique-sent. It was tested by forcing every response to time out (sets 3-5
+  use it).
+- **Deleting a run's readings bloated the indexes.** Clearing millions of rows
+  between runs left the empty October partition with a 1,564 MB primary-key
+  index, far beyond the 128 MB `shared_buffers`. Real ingest only appends, so
+  this was an artifact of the procedure. The cleanup now rebuilds the indexes
+  (`REINDEX TABLE readings`) as well as vacuuming (sets 4-5).
+- **Not explained:** set 1, and short pilot runs before it, were faster: a
+  ceiling of 486-490 requests a second, and a p99 of 5.3-5.6 ms at 200. Sets
+  2-5 never returned there, even once the indexes were rebuilt, so bloat wasn't
+  the cause. Set 1 ran with the PC unattended and its screen off. From set 2
+  the PC was in use, with the display held on to stop it sleeping, and k6
+  shared its CPU with everything else. That is the most likely difference,
+  but it was not tested. On this desktop, figures from separate sessions can
+  differ by 20%.
 
 **Environment:**
 
 - **Machine:** AMD Ryzen 5 7600 (6 cores, 12 threads) with 31 GB of RAM, on
-  Windows 11 Pro.
+  Windows 11 Pro. Kept awake for the runs: sleep and display-off were blocked
+  through `SetThreadExecutionState`.
 - **Containers:** Rancher Desktop with dockerd, in a WSL 2 VM with 12 CPUs and
   16 GB.
 - **API:** the production image from commit `fa21520` (Temurin 21.0.12.1, JRE
@@ -108,8 +126,9 @@ accepted count exactly.
   configuration: `shared_buffers` 128 MB, `max_wal_size` 1 GB.
 - **Load generator:** k6 v2.2.0, on the same machine. It competes with the
   containers for CPU, and 2,000 virtual users take about 4.5 GB of memory.
-- **Starting data:** before each run, the previous run's bins were deleted,
-  followed by `VACUUM ANALYZE`, leaving 3 bins and 69,168 readings.
+- **Starting state of each run:** the previous run's bins deleted, then
+  `VACUUM ANALYZE` and `REINDEX TABLE readings`, leaving 3 bins and 69,168
+  readings, with 4 MB of readings indexes.
 
 ## Load test: AWS
 
@@ -157,11 +176,19 @@ response or resend is miscounted, or if more than 1% of requests fail:
 2. every resent batch comes back as all duplicates, with none accepted;
 3. after the run, `teardown()` sums the run's readings per bin from
    `GET /bins/{id}/readings?bucket=day`, which counts the rows in the
-   database, and that total must equal the accepted total.
+   database. That total must equal the unique readings sent: no fewer than the
+   acknowledged ones, and no more than the unique ones. A request whose
+   response never arrived, such as one that outlasts the 10-second timeout,
+   may or may not have been stored, so the summary shows how many responses
+   were lost and whether those readings were stored.
 
 **Locally, at the Fargate task's size.** After the API container starts, it is
 limited to the ECS task's CPU and memory:
 `docker update --cpus 0.5 --memory 1g --memory-swap 1g grain-bin-monitoring-api-1`.
+
+**Between runs,** the previous run's bins, devices and readings are deleted,
+then `VACUUM (ANALYZE)` and `REINDEX TABLE readings` are run, so every run starts
+from the same small database with compact indexes.
 
 **Server-side figures.** After each run, the API's own metrics
 (`/actuator/prometheus`) supplied the connection-pool wait time

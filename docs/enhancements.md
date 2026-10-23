@@ -417,14 +417,16 @@ halving the image.
 
 **Today.** `RateOfRiseEvaluator` loads every bin, then runs the daily-average
 query once per bin, one after another, in a single transaction that holds the
-check's advisory lock (ADR 0015). Its cost grows with the bins and with the
-readings in their windows. It took 5.4 seconds over 2,003 bins that had just
-received 8.5 million readings, and up to 127 seconds over 8,500 to 11,500 bins
-with up to 19.5 million. At the second rate, somewhere between 20,000 and
-27,000 busy bins, a check would take longer than its 5-minute interval. Checks
-cannot overlap, so they would run back to back, with each bin judged less often
-than configured. The whole time, the check holds one of the pool's 10
-connections.
+check's advisory lock (ADR 0015). So its cost is linear in the number of bins,
+and grows with the readings in their windows and with the load around it. Over
+2,003 bins in the load tests, it took 1.5-1.6 seconds at 200 requests a second,
+7.0-7.2 seconds at 1,000, and 15-16 seconds on a saturated 0.5-CPU task. In an
+early pass, run against 8,500-11,500 bins and a badly bloated index, it took up
+to 127 seconds. At the slower measured rates, somewhere in the tens of
+thousands of busy bins, a check would take longer than its 5-minute interval.
+Checks cannot overlap, so they would run back to back, with each bin judged
+less often than configured. The whole time, the check holds one of the pool's
+10 connections.
 
 **The idea, in order of effort:**
 - **Skip bins with no new readings** since the last check. A quiet bin's daily
