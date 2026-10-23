@@ -239,6 +239,7 @@ frontend/           the React + TypeScript dashboard
 simulator/          the Python device simulator and its tests
 infra/bootstrap/    the Terraform state bucket, applied once
 infra/terraform/    the AWS stack, with its runbook
+load-tests/k6/      the k6 ingest load test, and the summaries of recorded runs
 ops/                Prometheus config and the provisioned Grafana dashboard
 .github/workflows/  ci.yml, plan.yml, deploy.yml
 .githooks/          the gitleaks pre-commit hook
