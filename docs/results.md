@@ -12,6 +12,7 @@ Target: under 250 MB (spec).
 | Date | Base image | Uncompressed | Compressed | Notes |
 |---|---|---|---|---|
 | 2026-09-29 | `eclipse-temurin:21.0.12_8-jre-alpine` | **239.6 MB** | 100.7 MB | First production build, `backend/Dockerfile` |
+| 2026-10-23 | `eclipse-temurin:21.0.12.1_1-jre-alpine` | **239.6 MB** | 100.7 MB | Base image bumped for the `libexpat` and `zlib` fixes (#20). No measurable change in size |
 
 **How it was measured.** *Uncompressed* is the sum of every layer after
 decompression, from `docker save` -- the size the image occupies once

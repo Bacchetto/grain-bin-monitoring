@@ -59,7 +59,10 @@ visible and explainable.
 - **Alpine's packages are this image's main source of vulnerability findings.**
   ECR's first scan reported four HIGH CVEs, in `expat` and `zlib` from the base
   image (issue #20). Pinning by tag means fixes arrive only when the tag is
-  bumped.
+  bumped, and bumping it is how they are taken: Temurin `21.0.12.1_1`
+  (2026-10-23) brought the fixed `libexpat` and `zlib`. The alternative,
+  `apk upgrade` at build time, would make the image depend on the day it was
+  built.
 - **musl, not glibc,** at runtime. Temurin publishes and tests Alpine builds,
   and the application uses no native libraries, so this has not mattered.
 - `docker build` takes no flags and works the same locally and in CI, and the

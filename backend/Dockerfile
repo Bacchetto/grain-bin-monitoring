@@ -5,18 +5,25 @@
 #   docker build -t grain-telemetry-api backend/
 #
 # PINNING: base images are pinned by tag to an exact Temurin release
-# (21.0.12_8), so a rebuild months from now uses the same JDK the tests ran on.
+# (21.0.12.1_1), so a rebuild months from now uses the same JDK the tests ran on.
 # A tag can still be re-pointed by its publisher; to rule that out, pin by
 # digest instead, which names one exact image:
-#   docker buildx imagetools inspect eclipse-temurin:21.0.12_8-jre-alpine
-#   FROM eclipse-temurin:21.0.12_8-jre-alpine@sha256:<digest from above>
+#   docker buildx imagetools inspect eclipse-temurin:21.0.12.1_1-jre-alpine
+#   FROM eclipse-temurin:21.0.12.1_1-jre-alpine@sha256:<digest from above>
 # The trade-off is that a digest never picks up security fixes by itself, so
 # it needs a tool such as Dependabot or Renovate to bump it.
+#
+# SECURITY FIXES come from bumping these tags, not from `apk upgrade` in the
+# runtime stage. Upgrading packages at build time would make the image depend
+# on the day it was built; a new tag is a tested, published base image. ECR
+# scans every pushed image, so a finding is the cue to look for a newer tag.
+# 21.0.12_8 -> 21.0.12.1_1 brought libexpat 2.9.0 and zlib 1.3.2-r1, fixing
+# the four HIGH CVEs the first deploy's scan reported (issue #20).
 
 # ---------------------------------------------------------------------------
 # Stage 1: build
 # ---------------------------------------------------------------------------
-FROM eclipse-temurin:21.0.12_8-jdk-noble AS build
+FROM eclipse-temurin:21.0.12.1_1-jdk-noble AS build
 WORKDIR /workspace
 
 # The Maven wrapper and pom first, then the dependency download, then the
@@ -46,7 +53,7 @@ RUN java -Djarmode=tools -jar app.jar extract --layers --launcher --destination 
 # ---------------------------------------------------------------------------
 # JRE, not JDK: no compiler is needed to run. Alpine keeps the image small
 # (the spec's target is under 250 MB). See ADR 0025.
-FROM eclipse-temurin:21.0.12_8-jre-alpine
+FROM eclipse-temurin:21.0.12.1_1-jre-alpine
 
 # A dedicated, unprivileged user. Running as root in a container is not the
 # same as root on the host, but if the process were ever compromised, root
