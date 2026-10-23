@@ -309,7 +309,7 @@ Work in order. Each milestone ends with every check above passing and a short su
 - React + TypeScript dashboard: bin list, bin detail (grid and charts), alerts view
 - Prometheus and Grafana in Compose, with a provisioned dashboard for ingest rate, latency, and alert transitions
 
-### Milestone 3: Containers, CI/CD, AWS ([#2](https://github.com/Bacchetto/grain-bin-monitoring/issues/2))
+### Milestone 3: Containers, CI/CD, AWS (complete, [#2](https://github.com/Bacchetto/grain-bin-monitoring/issues/2))
 - Production Dockerfile meeting the [container image](#container-image) requirements
 - `ci.yml` green on a pull request
 - Terraform bootstrap and main stack. `budgets.tf` is applied first.
