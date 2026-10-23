@@ -25,6 +25,7 @@ milestone; if it is rejected, it stays here marked as such, with the reason.
 | E14 | [Daily buckets in the site's local time](#e14) | Query API, dashboard | Proposed |
 | E15 | [Keep the metrics endpoint off the public internet](#e15) | Security, operations | **Resolved** in Milestone 3 ([ADR 0023](decisions/0023-cloudfront-single-front-door.md)) |
 | E16 | [A smaller runtime image with jlink](#e16) | Containers | Proposed |
+| E17 | [A rate-of-rise check that scales past a few thousand busy bins](#e17) | Alerts performance | Proposed -- only if bin counts grow |
 
 ---
 
@@ -406,3 +407,37 @@ halving the image.
 - The base image then has no JRE of its own to patch: JDK security updates
   arrive only by rebuilding, which a pinned-digest workflow would need to
   schedule.
+
+---
+
+<a id="e17"></a>
+## E17 - A rate-of-rise check that scales past a few thousand busy bins
+
+**Raised:** Milestone 4, from the local load tests (`docs/results.md`)
+
+**Today.** `RateOfRiseEvaluator` loads every bin, then runs the daily-average
+query once per bin, one after another, in a single transaction that holds the
+check's advisory lock (ADR 0015). Its cost grows with the bins and with the
+readings in their windows. It took 5.4 seconds over 2,003 bins that had just
+received 8.5 million readings, and up to 127 seconds over 8,500 to 11,500 bins
+with up to 19.5 million. At the second rate, somewhere between 20,000 and
+27,000 busy bins, a check would take longer than its 5-minute interval. Checks
+cannot overlap, so they would run back to back, with each bin judged less often
+than configured. The whole time, the check holds one of the pool's 10
+connections.
+
+**The idea, in order of effort:**
+- **Skip bins with no new readings** since the last check. A quiet bin's daily
+  averages cannot have changed. That needs a "last reading at" per bin, or a
+  cheap query on the newest partition.
+- **One query for many bins:** compute both windows' daily averages for a page
+  of bins at once (`GROUP BY bin_id, cable_index, depth_index`), rather than one
+  round trip per bin.
+- **Shard the work over time:** judge a slice of the bins on each run, so the
+  check's cost stays bounded and every bin is still judged within its window.
+
+**Things to get right.** The clear streak (three clear evaluations) assumes each
+bin is judged on every run. Skipping or sharding has to keep "one evaluation"
+meaning what ADR 0014 says it means.
+
+**Related.** E4 and E5, which also wait on load-test numbers.
