@@ -43,6 +43,7 @@ All of them are optional, and are given with `-e NAME=value`.
 | `CABLES`, `DEPTHS` | 4, 6 | Sensors per batch: `CABLES` × `DEPTHS`, so 24 readings |
 | `DUP_RATE` | 0.05 | Share of batches that resend the device's previous batch |
 | `RAMP`, `HOLD` | 2m, 5m | Stage lengths. A 30-second ramp-down follows |
+| `TIMEOUT` | 10s | How long k6 waits for a response before counting it as an error |
 | `LABEL` | local | Recorded in the summary |
 | `SUMMARY_FILE` | (none) | Also writes the full summary, every metric, as JSON |
 
@@ -52,13 +53,13 @@ each.
 ## Reading the output
 
 ```
-ingest load test: local, 1000 devices every 5s, 24 readings a batch
-  hold (5m):  200.0 requests/s, 4570 readings/s accepted
-  latency (hold):  p50 3.6 ms, p95 4.8 ms, p99 5.9 ms, max 30.3 ms
-  requests:        ..., errors 0.00%, fell behind 0
-  readings:        ... sent, ... accepted, ... duplicate, 0 rejected
-  correctness:     accounting 100.00%, 843 resent batches detected 100.00%
-  stored:          ... readings in the database for this run's bins (equals accepted)
+ingest load test: local-b-fargate-size-normal, 1000 devices every 5s, 24 readings a batch
+  hold (5m):  200.0 requests/s, 4559 readings/s accepted
+  latency (hold):  p50 4.6 ms, p95 6.3 ms, p99 12.6 ms, max 86.1 ms
+  requests:        74983, errors 0.00%, fell behind 0
+  readings:        1799592 sent, 1710744 accepted, 88848 duplicate, 0 rejected
+  correctness:     accounting 100.00%, 3702 resent batches detected 100.00%
+  stored:          1710744 readings in the database for this run's bins, of 1710744 unique readings sent: every one stored exactly once
 ```
 
 - **Hold** numbers cover only the steady stage, so the ramp doesn't dilute them.
@@ -72,14 +73,22 @@ ingest load test: local, 1000 devices every 5s, 24 readings a batch
   equals readings sent, and a fresh batch is accepted whole), and every resent
   batch must come back as all duplicates.
 - **Stored** is counted after the run from the readings API, so it comes from
-  the database, not from the API's responses. It must equal the accepted total:
-  that proves nothing was stored twice.
+  the database, not from the API's responses. Every unique reading sent must be
+  stored exactly once: never more than the unique readings sent (nothing stored
+  twice), and never fewer than the accepted ones (nothing acknowledged and
+  lost). A request whose response never arrived, such as one past `TIMEOUT`,
+  may or may not have been stored, so the line says how many responses were
+  lost and whether those readings were stored.
 
 ## Notes
 
 - **Test data stays.** The run's bins are named `k6 <run id> #n` on site
-  `load test`. There is no delete endpoint yet (enhancement E8), so locally
-  `docker compose down -v` is the way to clear them.
+  `load test`. There is no delete endpoint yet (enhancement E8). Locally,
+  `docker compose down -v` clears everything. To keep other data, delete the
+  run's bins, devices, alerts and readings by that name and site, then run
+  `VACUUM (ANALYZE)` and **`REINDEX TABLE readings`**. A deleted run leaves the
+  readings indexes at full size, and the next run is slower for it: one
+  afternoon's runs grew the empty partition's primary key to 1.5 GB.
 - **The run's devices report a 24-hour interval.** That keeps them from
   opening a `DEVICE_OFFLINE` alert each when the run ends. The scheduled
   checks still evaluate every one of them.

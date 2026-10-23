@@ -17,8 +17,12 @@
 //      accepted + duplicates + rejected = sent, and a fresh batch is accepted whole
 //   2. every resent batch comes back as all duplicates, none accepted
 //   3. teardown() counts what the database actually stored for this run's bins,
-//      through the readings API, and the summary compares it with the accepted
-//      total. That is the server-side proof that nothing was stored twice.
+//      through the readings API. Every unique reading sent must be stored
+//      exactly once: never more than the unique readings sent (nothing stored
+//      twice), never fewer than the accepted ones (nothing acknowledged and
+//      lost). A request whose response never arrived, such as a client
+//      timeout, has an unknown outcome, so the stored count may fall between
+//      the two bounds. When every response arrived, it equals both.
 //
 // Settings (all optional, given with -e NAME=value):
 //   BASE_URL     http://localhost:8080        the API, or the CloudFront URL
@@ -28,6 +32,7 @@
 //   CABLES       4, DEPTHS 6                  sensors per sample: CABLES x DEPTHS
 //   DUP_RATE     0.05                         share of batches that are resends
 //   RAMP         2m, HOLD 5m                  stage lengths (s or m)
+//   TIMEOUT      10s                          how long k6 waits for a response
 //   LABEL        local                        recorded in the summary
 //   SUMMARY_FILE (none)                       also write the full summary as JSON
 
@@ -45,6 +50,7 @@ const DEPTHS = intSetting('DEPTHS', 6);
 const DUP_RATE = numberSetting('DUP_RATE', 0.05);
 const RAMP = __ENV.RAMP || '2m';
 const HOLD = __ENV.HOLD || '5m';
+const TIMEOUT = __ENV.TIMEOUT || '10s';
 const LABEL = __ENV.LABEL || 'local';
 
 const READINGS_PER_BATCH = CABLES * DEPTHS;
@@ -85,6 +91,12 @@ const ingestRequests = new Counter('ingest_requests');
 const holdRequests = new Counter('hold_requests');
 const holdReadingsAccepted = new Counter('hold_readings_accepted');
 const readingsSent = new Counter('readings_sent');
+// Readings in fresh batches, whatever happened to the request: the most the
+// database may hold for this run.
+const readingsUniqueSent = new Counter('readings_unique_sent');
+// Readings in fresh batches whose response never arrived. The server may or
+// may not have stored them.
+const readingsUnconfirmed = new Counter('readings_unconfirmed');
 const readingsAccepted = new Counter('readings_accepted');
 const readingsDuplicate = new Counter('readings_duplicate');
 const readingsRejected = new Counter('readings_rejected');
@@ -160,12 +172,13 @@ export default function (data) {
   const res = http.post(`${BASE_URL}/api/v1/readings`, body, {
     headers: { 'X-Device-Key': device.apiKey, 'Content-Type': 'application/json' },
     tags: { kind, name: 'POST /api/v1/readings' },
-    timeout: '10s',
+    timeout: TIMEOUT,
   });
 
   const inHold = phase() === 'hold';
   ingestRequests.add(1);
   readingsSent.add(READINGS_PER_BATCH);
+  if (!resend) readingsUniqueSent.add(READINGS_PER_BATCH);
   latency.add(res.timings.duration, { kind });
   if (inHold) {
     holdRequests.add(1);
@@ -174,6 +187,7 @@ export default function (data) {
 
   const ok = res.status === 202;
   ingestErrors.add(!ok);
+  if (!ok && !resend) readingsUnconfirmed.add(READINGS_PER_BATCH);
   if (ok) {
     const counts = res.json();
     readingsAccepted.add(counts.accepted);
@@ -252,8 +266,16 @@ export function teardown(data) {
 export function handleSummary(data) {
   const count = (name) => (data.metrics[name] ? data.metrics[name].values.count : 0);
   const value = (name, stat) => (data.metrics[name] ? data.metrics[name].values[stat] : null);
+  // A Rate with no samples reports 0; show it as "n/a" rather than as a failure.
+  const rate = (name) => {
+    const m = data.metrics[name];
+    return m && m.values.passes + m.values.fails > 0 ? m.values.rate : null;
+  };
   const accepted = count('readings_accepted');
   const stored = count('readings_stored');
+  const uniqueSent = count('readings_unique_sent');
+  const unconfirmed = count('readings_unconfirmed');
+  const storedOk = stored >= accepted && stored <= uniqueSent;
 
   const report = {
     label: LABEL,
@@ -271,6 +293,8 @@ export function handleSummary(data) {
       requests: count('ingest_requests'),
       errorRate: value('ingest_errors', 'rate'),
       readingsSent: count('readings_sent'),
+      readingsUniqueSent: uniqueSent,
+      readingsUnconfirmed: unconfirmed,
       readingsAccepted: accepted,
       readingsDuplicate: count('readings_duplicate'),
       readingsRejected: count('readings_rejected'),
@@ -278,10 +302,11 @@ export function handleSummary(data) {
       cadenceMissed: count('cadence_missed'),
     },
     correctness: {
-      accounting: value('ingest_accounting_correct', 'rate'),
-      duplicateDetection: value('duplicate_detection_correct', 'rate'),
+      accounting: rate('ingest_accounting_correct'),
+      duplicateDetection: rate('duplicate_detection_correct'),
       readingsStored: stored,
-      storedEqualsAccepted: stored === accepted,
+      storedWithinBounds: storedOk,
+      storedEqualsUniqueSent: stored === uniqueSent,
     },
   };
 
@@ -302,8 +327,8 @@ export function handleSummary(data) {
       (report.totals.batchesResent === 0
         ? 'no batches were resent'
         : `${report.totals.batchesResent} resent batches detected ${pct(report.correctness.duplicateDetection)}`),
-    `  stored:          ${stored} readings in the database for this run's bins ` +
-      `(${report.correctness.storedEqualsAccepted ? 'equals' : 'DOES NOT EQUAL'} accepted)`,
+    `  stored:          ${stored} readings in the database for this run's bins, of ${uniqueSent} ` +
+      `unique readings sent: ${storedSummary(storedOk, stored, accepted, uniqueSent, unconfirmed)}`,
     '',
   ].join('\n');
 
@@ -315,6 +340,18 @@ export function handleSummary(data) {
 }
 
 // --- helpers ---------------------------------------------------------------
+
+function storedSummary(ok, stored, accepted, uniqueSent, unconfirmed) {
+  if (!ok) {
+    return `WRONG: must be between ${accepted} accepted and ${uniqueSent} unique sent`;
+  }
+  if (stored === uniqueSent) {
+    return unconfirmed === 0
+      ? 'every one stored exactly once'
+      : `every one stored exactly once, including the ${unconfirmed} whose response was lost`;
+  }
+  return `${stored - accepted} of the ${unconfirmed} readings whose response was lost were stored, none twice`;
+}
 
 function intSetting(name, fallback) {
   const v = __ENV[name] === undefined ? fallback : parseInt(__ENV[name], 10);
