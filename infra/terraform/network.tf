@@ -9,7 +9,7 @@
 # ECS tasks sit in public subnets with public IPs, so they can pull their
 # image from ECR and read Secrets Manager directly. Their security group
 # accepts inbound traffic only from the ALB, so the public IP gives the
-# internet no way in. Recorded in an ADR.
+# internet no way in. See ADR 0022.
 
 # Two zones, excluding cac1-az3: CloudFront VPC origins -- how CloudFront
 # reaches the internal ALB (frontend.tf) -- are not supported in that zone.

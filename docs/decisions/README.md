@@ -66,3 +66,10 @@ of them; package docs carry anything that might need updating later.
 | [0019](0019-structured-json-logging.md) | Structured JSON logging, built into Spring Boot | logging |
 | [0020](0020-time-scale-replays-the-past.md) | The simulator's `--time-scale` replays the past | `simulator` |
 | [0021](0021-local-tooling-on-a-network-drive.md) | Local tooling that works from a network drive: poll, don't watch; build, don't mount | `frontend`, `ops`, Compose |
+| [0022](0022-no-nat-gateway.md) | No NAT gateway: the API tasks get public IPs | `infra` network, ECS |
+| [0023](0023-cloudfront-single-front-door.md) | CloudFront as the single front door, with an internal load balancer | `infra` CloudFront, ALB |
+| [0024](0024-secrets-kept-out-of-terraform-state.md) | Secrets kept out of Terraform state | `infra` secrets, RDS, ECS |
+| [0025](0025-production-dockerfile.md) | The production Dockerfile: Alpine JRE, layered jar, non-root | `backend/Dockerfile` |
+| [0026](0026-two-oidc-roles-and-an-approval-gate.md) | Two OIDC roles, and an approval gate on every deploy | `infra` IAM, workflows |
+| [0027](0027-budget-first-and-a-taskless-first-apply.md) | The budget first, then a first apply with no task | `infra`, runbook |
+| [0028](0028-aws-account-id-kept-out-of-the-public-repository.md) | The AWS account ID is kept out of the public repository | `infra`, workflows |

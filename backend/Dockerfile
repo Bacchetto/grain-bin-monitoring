@@ -45,7 +45,7 @@ RUN java -Djarmode=tools -jar app.jar extract --layers --launcher --destination 
 # Stage 2: run
 # ---------------------------------------------------------------------------
 # JRE, not JDK: no compiler is needed to run. Alpine keeps the image small
-# (the README's target is under 250 MB).
+# (the spec's target is under 250 MB). See ADR 0025.
 FROM eclipse-temurin:21.0.12_8-jre-alpine
 
 # A dedicated, unprivileged user. Running as root in a container is not the

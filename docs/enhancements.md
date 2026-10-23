@@ -23,7 +23,7 @@ milestone; if it is rejected, it stays here marked as such, with the reason.
 | E12 | [Track data freshness separately from liveness](#e12) | Devices, dashboard | Proposed |
 | E13 | [Faster `latest` for dense bins](#e13) | Query performance | Proposed -- only if bins get dense |
 | E14 | [Daily buckets in the site's local time](#e14) | Query API, dashboard | Proposed |
-| E15 | [Keep the metrics endpoint off the public internet](#e15) | Security, operations | Proposed -- **must be settled in Milestone 3** |
+| E15 | [Keep the metrics endpoint off the public internet](#e15) | Security, operations | **Resolved** in Milestone 3 ([ADR 0023](decisions/0023-cloudfront-single-front-door.md)) |
 | E16 | [A smaller runtime image with jlink](#e16) | Containers | Proposed |
 
 ---
@@ -377,6 +377,8 @@ only the VPC can reach (`management.server.port`), rather than adding
 credentials to a public path.
 
 **Related.** E10 (production-grade admin authentication).
+
+**Resolved in Milestone 3** ([ADR 0023](decisions/0023-cloudfront-single-front-door.md)). The load balancer is internal, and CloudFront forwards only `/api/*` to it, so `/actuator/**` is not reachable from the internet at all. The target group's health check reaches `/actuator/health` from inside the VPC. Verified on the first deploy: `/actuator/prometheus` through CloudFront returns the dashboard's HTML. **What remains:** nothing scrapes the Prometheus endpoint in AWS, so the application's own metrics (readings by outcome, ingest latency, alert transitions) exist only locally. CloudWatch has the load balancer's, ECS's and RDS's metrics. Shipping the application's metrics would be a new enhancement: CloudWatch's agent, or Amazon Managed Service for Prometheus, scraping from inside the VPC.
 
 ---
 
