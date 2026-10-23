@@ -69,6 +69,11 @@ services:
       # point (ADR 0003). It comes from .env.
       ADMIN_TOKEN: ${ADMIN_TOKEN}
       CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-}
+      # How often the scheduled alert checks run. The fallbacks are the
+      # application's own defaults; set them in .env or the shell to shorten
+      # them for a demo, or lengthen them to take a check out of a load test.
+      APP_ALERTS_OFFLINE_CHECK_INTERVAL: ${APP_ALERTS_OFFLINE_CHECK_INTERVAL:-1m}
+      APP_ALERTS_RATE_OF_RISE_CHECK_INTERVAL: ${APP_ALERTS_RATE_OF_RISE_CHECK_INTERVAL:-5m}
     ports:
       # The same port the host-run API uses, so the dashboard, the simulator
       # and Prometheus find it without any change.

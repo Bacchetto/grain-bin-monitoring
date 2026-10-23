@@ -41,6 +41,8 @@ python simulator/sim.py --scenario offline --bins 1   # 5 samples, then silence:
 
 To see scheduled alerts sooner, start the API with shorter checks:
 `APP_ALERTS_RATE_OF_RISE_CHECK_INTERVAL=5s APP_ALERTS_OFFLINE_CHECK_INTERVAL=5s ./mvnw spring-boot:run`.
+The Compose `api` service reads the same two variables, from `.env` or the
+shell, so the same works with `docker compose --profile api up -d`.
 
 **The production image, locally:** instead of `./mvnw spring-boot:run`, run
 `docker compose --profile api up -d --build`. It builds `backend/Dockerfile` and
