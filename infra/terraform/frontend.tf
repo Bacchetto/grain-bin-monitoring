@@ -11,7 +11,7 @@
 #     is needed in production.
 #   - Only /api/* is exposed: the ALB is internal, so nothing else on it is
 #     reachable (enhancement E15).
-# Recorded in an ADR.
+# See ADR 0023.
 
 # ---------------------------------------------------------------------------
 # The dashboard's files

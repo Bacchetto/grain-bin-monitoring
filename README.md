@@ -218,6 +218,13 @@ Each choice is recorded with its context, the alternatives and its consequences:
 | [0019](docs/decisions/0019-structured-json-logging.md) | Structured JSON logging, built into Spring Boot |
 | [0020](docs/decisions/0020-time-scale-replays-the-past.md) | The simulator's `--time-scale` replays the past |
 | [0021](docs/decisions/0021-local-tooling-on-a-network-drive.md) | Local tooling that works from a network drive: poll, don't watch; build, don't mount |
+| [0022](docs/decisions/0022-no-nat-gateway.md) | No NAT gateway: the API tasks get public IPs |
+| [0023](docs/decisions/0023-cloudfront-single-front-door.md) | CloudFront as the single front door, with an internal load balancer |
+| [0024](docs/decisions/0024-secrets-kept-out-of-terraform-state.md) | Secrets kept out of Terraform state |
+| [0025](docs/decisions/0025-production-dockerfile.md) | The production Dockerfile: Alpine JRE, layered jar, non-root |
+| [0026](docs/decisions/0026-two-oidc-roles-and-an-approval-gate.md) | Two OIDC roles, and an approval gate on every deploy |
+| [0027](docs/decisions/0027-budget-first-and-a-taskless-first-apply.md) | The budget first, then a first apply with no task |
+| [0028](docs/decisions/0028-aws-account-id-kept-out-of-the-public-repository.md) | The AWS account ID is kept out of the public repository |
 
 The requirements and milestones are in [docs/spec.md](docs/spec.md), and progress is tracked in
 [GitHub issues](https://github.com/Bacchetto/grain-bin-monitoring/issues?q=label%3Amilestone).
