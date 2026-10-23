@@ -41,33 +41,46 @@ batches resend the device's previous batch. Each run ramps up over 2 minutes,
 then holds for 5 minutes; the figures are for the hold.
 
 The figures are from **three consecutive sets of four runs** (sets 3-5,
-13:20-15:01 local time), given as the range across the sets. Earlier sets
-exposed two problems in the procedure (see "What changed between sets" below)
-and are not used. The full summaries, every metric included, are in
+13:20-15:01 local time), given as the range across the sets, plus **one ceiling
+run on a quiet host** (17:09 local time), with everything else on the PC
+closed. Earlier sets exposed two problems in the procedure (see "What changed
+between sets" below) and are not used. The full summaries, every metric
+included, are in
 [`load-tests/k6/results/2026-10-23/`](../load-tests/k6/results/2026-10-23/).
 
 | Run | API container | Offered | Achieved (hold) | Readings/s | p50 | p95 | p99 | Errors |
 |---|---|---|---|---|---|---|---|---|
 | B | **0.5 vCPU, 1 GB** (the Fargate task) | 1,000 devices / 5 s = 200 req/s | **200 req/s** | 4,557-4,559 | 4.6-4.7 ms | 6.3-26.1 ms | 12.6-166 ms | 0 |
-| C | **0.5 vCPU, 1 GB** | 2,000 devices / 2 s = 1,000 req/s | **400-407 req/s** (the ceiling) | 9,118-9,268 | 4.8-4.9 s | 5.9-6.3 s | 6.7-7.9 s | 0 |
+| C, quiet host | **0.5 vCPU, 1 GB** | 2,000 devices / 2 s = 1,000 req/s | **485 req/s** (the ceiling) | 11,065 | 4.0 s | 5.2 s | 7.3 s | 0 |
+| C, desktop in use | **0.5 vCPU, 1 GB** | the same | 400-407 req/s | 9,118-9,268 | 4.8-4.9 s | 5.9-6.3 s | 6.7-7.9 s | 0 |
 | A | unlimited | 2,000 devices / 2 s = 1,000 req/s | **922-942 req/s** | 21,029-21,466 | 18-29 ms | 2.2-3.3 s | 6.1-6.2 s | 0 |
 | A2 | unlimited, rate-of-rise check hourly | the same | 917-936 req/s | 20,922-21,348 | 21-71 ms | 2.6-3.3 s | 6.1-6.6 s | 0 |
 
-**Correctness held in every one of the 12 runs, including far past
-saturation.** Across them: 2,846,328 requests and 140,640 resent batches,
-every resend detected as duplicates. And 64,936,512 unique readings were sent,
-of which **64,936,512 are in the database: every one stored exactly once.**
-64,936,440 were acknowledged; the other 72, three batches in the ceiling runs,
+**Correctness held in every one of the 13 runs, including far past
+saturation.** Across them: 3,045,592 requests and 150,503 resent batches,
+every resend detected as duplicates. And 69,482,136 unique readings were sent,
+of which **69,482,136 are in the database: every one stored exactly once.**
+69,482,064 were acknowledged; the other 72, three batches in the ceiling runs,
 were stored, but their responses came after k6's 10-second timeout.
 
 **What the runs show:**
 
-- **The Fargate-sized task tops out at about 400 requests a second (9,200
-  readings a second).** The container sits at its 0.5-CPU limit while Postgres
-  has cores to spare. Past the ceiling, requests queue: in run C each waited
-  233-238 ms on average for a database connection, out of a pool of 10. Latency
-  climbs to seconds and devices fall behind their cadence, but nothing fails
-  and nothing is miscounted.
+- **The Fargate-sized task tops out at about 485 requests a second (11,000
+  readings a second) when it gets its full 0.5 CPU, and 400-407 when the
+  desktop is busy.** The container sits at its CPU limit while Postgres has
+  cores to spare. `--cpus 0.5` is a cap, not a reservation: with the load
+  generator, the database and the desktop's own applications competing, the
+  container doesn't always get its 0.5. A Fargate task is guaranteed its
+  vCPU, so the quiet-host figure is the better model of the deployed task.
+  Past the ceiling, requests queue: each waited 190-238 ms on average for a
+  database connection, out of a pool of 10. Latency climbs to seconds and
+  devices fall behind their cadence, but nothing fails and nothing is
+  miscounted.
+- **What that means in devices.** Each device sends one request per report, so
+  one task serves roughly *ceiling x reporting interval* devices. At 485
+  requests a second, that is about 145,000 devices reporting every 5 minutes
+  (the API's default interval), or 14,500 at the 30-second minimum. With
+  headroom kept, half those numbers per task, before latency rises.
 - **At 200 requests a second the same task is comfortable,** with a median of
   4.6 ms. The tail varies from set to set (p99 12.6-166 ms): the load generator
   and both containers share one desktop. This is the steady state the AWS
@@ -103,14 +116,15 @@ exposed two problems, and they aren't used:
   index, far beyond the 128 MB `shared_buffers`. Real ingest only appends, so
   this was an artifact of the procedure. The cleanup now rebuilds the indexes
   (`REINDEX TABLE readings`) as well as vacuuming (sets 4-5).
-- **Not explained:** set 1, and short pilot runs before it, were faster: a
-  ceiling of 486-490 requests a second, and a p99 of 5.3-5.6 ms at 200. Sets
-  2-5 never returned there, even once the indexes were rebuilt, so bloat wasn't
-  the cause. Set 1 ran with the PC unattended and its screen off. From set 2
-  the PC was in use, with the display held on to stop it sleeping, and k6
-  shared its CPU with everything else. That is the most likely difference,
-  but it was not tested. On this desktop, figures from separate sessions can
-  differ by 20%.
+- **Contention from other software on the PC, explained by a quiet-host run.** Set 1, and
+  short pilot runs before it, were faster: a ceiling of 486-490 requests a
+  second, and a p99 of 5.3-5.6 ms at 200. Sets 2-5 never returned there, even
+  once the indexes were rebuilt, so bloat wasn't the cause. Set 1 ran with the
+  PC unattended, and from set 2 the PC was in use. A ceiling run with
+  everything else closed (host CPU 6.4% beforehand) and the screen held on
+  reached **485 requests a second**, back with set 1. So contention for the
+  host's CPU explains the difference, and the screen does not. On a desktop
+  in use, expect figures about 20% lower than on a quiet one.
 
 **Environment:**
 
