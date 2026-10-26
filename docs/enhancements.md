@@ -422,11 +422,13 @@ and grows with the readings in their windows and with the load around it. Over
 2,003 bins in the load tests, it took 1.5-1.6 seconds at 200 requests a second,
 7.0-7.2 seconds at 1,000, and 15-16 seconds on a saturated 0.5-CPU task. In an
 early pass, run against 8,500-11,500 bins and a badly bloated index, it took up
-to 127 seconds. At the slower measured rates, somewhere in the tens of
-thousands of busy bins, a check would take longer than its 5-minute interval.
-Checks cannot overlap, so they would run back to back, with each bin judged
-less often than configured. The whole time, the check holds one of the pool's
-10 connections.
+to 127 seconds. The check is scheduled with a fixed delay: the next run starts
+5 minutes after the previous one *finishes*. So a slow check doesn't overlap
+itself; it stretches the period instead. At the slower measured rates,
+somewhere in the tens of thousands of busy bins, a run would take as long as the
+interval, and each bin would be judged every 10 minutes rather than every 5. A
+rising sensor would then take longer to alert. The whole time, the check holds
+one of the pool's 10 connections.
 
 **The idea, in order of effort:**
 - **Skip bins with no new readings** since the last check. A quiet bin's daily
