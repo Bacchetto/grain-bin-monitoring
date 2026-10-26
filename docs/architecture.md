@@ -91,7 +91,7 @@ sequenceDiagram
     F->>P: look up SHA-256(key) by its unique index
     P-->>F: device id, bin id
     F->>S: validated batch
-    S->>S: one "now"; set aside samples out of the time window
+    S->>S: one clock instant, then set aside samples out of the time window
     S->>P: ensure this month's partition (its own transaction)
     rect rgba(127, 127, 127, 0.12)
     note over S,L: one transaction
