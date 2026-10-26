@@ -19,30 +19,35 @@ flowchart LR
     end
 
     subgraph vpc ["VPC, ca-central-1, two zones"]
-        subgraph private ["Private subnets"]
-            alb["Internal ALB<br/>/api/* only"]
+        igw["Internet gateway"]
+        subgraph private ["Private subnets, no route to the internet"]
+            alb["Internal ALB<br/>/api/* only, from CloudFront only"]
             db[("RDS PostgreSQL 16<br/>readings partitioned by month")]
         end
         subgraph public ["Public subnets"]
-            api["Spring Boot API<br/>ECS Fargate, 0.5 vCPU / 1 GB"]
+            api["Spring Boot API on ECS Fargate<br/>0.5 vCPU / 1 GB, public IP,<br/>inbound from the ALB only"]
         end
     end
 
-    s3["S3<br/>the built dashboard"]
+    s3["S3<br/>the built dashboard, private"]
     ecr["ECR<br/>the API image"]
     secrets["Secrets Manager<br/>DB password, admin token"]
-    cw["CloudWatch<br/>logs, alarms"]
+    cw["CloudWatch<br/>logs, metrics, alarms"]
     sns["SNS<br/>alarm email"]
 
     devices -- "POST /api/v1/readings" --> cf
     browser --> cf
-    cf -- "/* (cached)" --> fn --> s3
+    cf -- "/* (cached)" --> fn
+    fn -- "signed request (OAC)" --> s3
     cf -- "/api/* (never cached),<br/>through a VPC origin" --> alb
-    alb -- ":8080" --> api
-    api --> db
-    ecr -. "image pull" .-> api
-    secrets -. "injected at task start" .-> api
-    api -. "JSON logs" .-> cw
+    alb -- ":8080, and health checks<br/>on /actuator/health" --> api
+    api -- ":5432" --> db
+    api -. "outbound only, no NAT" .-> igw
+    igw -. "image pull" .-> ecr
+    igw -. "secrets, at task start" .-> secrets
+    igw -. "JSON logs" .-> cw
+    alb -. "5xx metrics" .-> cw
+    db -. "free storage" .-> cw
     cw -. "alarms" .-> sns
 ```
 
@@ -80,30 +85,36 @@ sequenceDiagram
     autonumber
     participant D as Device
     participant E as CloudFront + ALB
-    participant F as Auth filter
+    participant F as DeviceAuthFilter
+    participant C as IngestController
     participant S as IngestService
     participant P as PostgreSQL
     participant T as ThresholdEvaluator
     participant L as AlertLifecycle
 
     D->>E: POST /api/v1/readings, X-Device-Key
-    E->>F: forwarded to a task
+    E->>F: forwarded to a healthy task
     F->>P: look up SHA-256(key) by its unique index
     P-->>F: device id, bin id
-    F->>S: validated batch
+    F->>C: authenticated request
+    C->>C: at most 500 samples (else 413), then validate (else 400)
+    C->>S: the device and its samples
     S->>S: one clock instant, then set aside samples out of the time window
-    S->>P: ensure this month's partition (its own transaction)
+    S->>P: create the month's partition if missing (own transaction, usually cached)
     rect rgba(127, 127, 127, 0.12)
     note over S,L: one transaction
     S->>P: INSERT ... ON CONFLICT DO NOTHING, per reading
     P-->>S: 1 = stored, 0 = duplicate
     S->>P: last_seen_at = GREATEST(last_seen_at, now)
     S->>T: only the readings just stored
+    T->>P: the bin's limits, its open alerts, any newer readings
     T->>L: limit exceeded at cable 1, depth 3
     L->>P: upsert the open alert, RETURNING (xmax = 0)
+    S->>P: COMMIT
     end
-    L-->>L: after commit: JSON log line and metric
-    S-->>D: 202 {"accepted": 24, "duplicates": 0, "rejected": 0}
+    L-->>L: after commit, a JSON log line and the transition metric
+    S-->>S: after commit, count the outcomes in ingest_readings_total
+    C-->>D: 202 with accepted, duplicates and rejected
 ```
 
 1. **To a task.** The device sends the batch over HTTPS to CloudFront, which
@@ -116,9 +127,12 @@ sequenceDiagram
    Spring Security ([ADR 0003](decisions/0003-filter-based-auth.md)). SHA-256,
    not bcrypt, because keys are random and long, and the lookup is on every
    request ([ADR 0004](decisions/0004-sha-256-for-device-api-keys.md)).
-3. **Is it well formed?** Bean Validation checks the body. More than 500
-   samples is a 413, and a structurally invalid reading fails the whole batch
-   with a 400 that names it by path, such as `samples[3].sensors[0].temperatureC`.
+3. **Is it well formed?** `IngestController` checks the batch's size first:
+   more than 500 samples is a 413, however valid they are, so an oversized
+   request isn't validated sample by sample only to be refused. Then Bean
+   Validation checks the body, and a structurally invalid reading fails the
+   whole batch with a 400 that names it by path, such as
+   `samples[3].sensors[0].temperatureC`.
 4. **Is it in the time window?** `IngestService` takes one instant from the
    clock, and every time decision in the request uses it. Samples more than 5
    minutes in the future, or older than 30 days, are set aside and counted as
@@ -127,8 +141,8 @@ sequenceDiagram
 5. **Is there a partition?** Each month's readings live in their own partition
    ([ADR 0010](decisions/0010-monthly-range-partitioning.md)). A daily job
    creates the current month and the next three ahead of time. Ingest also
-   checks, and creates a missing month in its own short transaction, *before*
-   the write. A batch that later rolls back can't take the new partition with
+   checks, against an in-memory cache, so it almost never costs a query, and
+   creates a missing month in its own short transaction, *before* the write. A batch that later rolls back can't take the new partition with
    it, so an insert never fails for want of one.
 6. **Store it, exactly once.** In one transaction, every reading is inserted
    with `ON CONFLICT DO NOTHING`. The primary key is
@@ -209,25 +223,29 @@ erDiagram
         bigint id PK
         text site "unique with name"
         text name
-        numeric max_temperature_c
-        numeric max_moisture_pct
-        numeric rise_threshold_c
-        int rise_window_hours
+        text grain_type
+        int capacity_bushels "optional"
+        numeric max_temperature_c "default 20.0"
+        numeric max_moisture_pct "default 14.5"
+        numeric rise_threshold_c "default 2.0"
+        int rise_window_hours "default 72"
+        timestamptz created_at
     }
     devices {
         bigint id PK
         bigint bin_id FK
         text api_key_hash "SHA-256, unique"
-        int expected_interval_seconds
-        timestamptz last_seen_at "server clock"
+        int expected_interval_seconds "default 300"
+        timestamptz last_seen_at "server clock, null until a reading is stored"
+        timestamptz created_at "the offline clock starts here if never seen"
     }
     readings {
-        bigint device_id
-        bigint bin_id
-        bigint seq
-        smallint cable_index
-        smallint depth_index
-        timestamptz recorded_at "partition key, device clock"
+        bigint device_id PK "no FK"
+        bigint bin_id "copied from the device, no FK"
+        bigint seq PK
+        smallint cable_index PK
+        smallint depth_index PK
+        timestamptz recorded_at PK "partition key, device clock"
         timestamptz received_at "server clock"
         numeric temperature_c
         numeric moisture_pct "optional"
@@ -235,14 +253,25 @@ erDiagram
     alerts {
         bigint id PK
         bigint bin_id FK
+        text type "HIGH_TEMPERATURE, HIGH_MOISTURE, RATE_OF_RISE, DEVICE_OFFLINE"
+        smallint cable_index "sensor alerts only"
+        smallint depth_index "sensor alerts only"
         bigint device_id FK "DEVICE_OFFLINE only"
-        text type
         text status "OPEN, ACKNOWLEDGED, RESOLVED"
-        smallint clear_streak
-        timestamptz last_detected_at
+        numeric trigger_value
+        numeric threshold_value
+        timestamptz first_detected_at
+        timestamptz last_detected_at "moved by repeat detections"
+        timestamptz acknowledged_at
+        timestamptz resolved_at
+        smallint clear_streak "three clear evaluations resolve"
     }
 ```
 
+- **Alerts de-duplicate through partial unique indexes.** They cover only
+  unresolved alerts: one per `(bin, type, cable, depth)` for sensor alerts, and
+  one per `(bin, type, device)` for `DEVICE_OFFLINE`. A resolved alert is
+  history, and a new occurrence of the same condition opens a new row.
 - **`readings` is range-partitioned by `recorded_at`, one partition per month.**
   Queries for a time range touch only the months they cover, and old data can
   one day be dropped a month at a time (enhancement E9).
