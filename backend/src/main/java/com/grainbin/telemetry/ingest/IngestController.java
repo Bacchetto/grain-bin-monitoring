@@ -45,9 +45,9 @@ public class IngestController {
 	 * runs before the method body and so cannot express that.
 	 *
 	 * <p>A structurally invalid sample fails the <em>whole</em> batch with 400,
-	 * and nothing is stored. Only future-dated samples are rejected
-	 * individually, because that is the one per-sample rejection the spec
-	 * defines.
+	 * and nothing is stored. Only samples outside the time window -- too far
+	 * in the future (the spec) or the past (ADR 0006) -- are rejected
+	 * individually, by the service.
 	 */
 	@PostMapping("/api/v1/readings")
 	ResponseEntity<IngestResponse> ingest(@RequestBody IngestRequest request, HttpServletRequest http) {
