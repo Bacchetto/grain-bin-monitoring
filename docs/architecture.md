@@ -39,7 +39,7 @@ flowchart LR
     browser --> cf
     cf -- "/* (cached)" --> fn
     fn -- "signed request (OAC)" --> s3
-    cf -- "/api/* (never cached),<br/>through a VPC origin" --> alb
+    cf -- "/api/* (never cached), HTTP :80<br/>through a VPC origin" --> alb
     alb -- ":8080, and health checks<br/>on /actuator/health" --> api
     api -- ":5432" --> db
     api -. "outbound only, no NAT" .-> igw
@@ -47,6 +47,7 @@ flowchart LR
     igw -. "secrets, at task start" .-> secrets
     igw -. "JSON logs" .-> cw
     alb -. "5xx metrics" .-> cw
+    api -. "CPU metrics" .-> cw
     db -. "free storage" .-> cw
     cw -. "alarms" .-> sns
 ```
@@ -105,9 +106,9 @@ sequenceDiagram
     note over S,L: one transaction
     S->>P: INSERT ... ON CONFLICT DO NOTHING, per reading
     P-->>S: 1 = stored, 0 = duplicate
-    S->>P: last_seen_at = GREATEST(last_seen_at, now)
+    S->>P: if anything was stored, last_seen_at = GREATEST(last_seen_at, now)
     S->>T: only the readings just stored
-    T->>P: the bin's limits, its open alerts, any newer readings
+    T->>P: any newer readings, then the bin's limits and its open alerts
     T->>L: limit exceeded at cable 1, depth 3
     L->>P: upsert the open alert, RETURNING (xmax = 0)
     S->>P: COMMIT
@@ -163,7 +164,9 @@ sequenceDiagram
    values: exactly 85.0 °C, or anything outside -60..100 °C
    ([ADR 0014](decisions/0014-what-counts-as-an-alert-evaluation.md),
    [ADR 0016](decisions/0016-ignore-probe-fault-values-in-alert-evaluation.md)).
-   A healthy bin costs three small indexed reads and no writes.
+   It reads in that order: newer stored readings first, and only if any
+   reading is left to judge, the bin's limits and its open alerts. A healthy
+   bin costs those three small indexed reads and no writes.
 9. **Open the alert.** `AlertLifecycle` upserts the alert against a partial
    unique index: one non-resolved alert per bin, type and sensor position, or
    per device for `DEVICE_OFFLINE`
@@ -176,7 +179,9 @@ sequenceDiagram
     the transaction commits, so a rolled-back batch never logs or counts an
     alert that doesn't exist. The report is a structured JSON log line and
     `alerts_transitions_total{type,to_state}`. Ingest counts its outcomes
-    (`ingest_readings_total{outcome}`) and records its latency in the same way.
+    the same way, after commit (`ingest_readings_total{outcome}`). Its latency
+    comes from Spring's `http.server.requests` histogram, which times every
+    endpoint.
 11. **Answer.** `202 Accepted`, with the three counts in readings. They always
     add up to the number of readings sent.
 
@@ -215,7 +220,7 @@ sequenceDiagram
 erDiagram
     bins ||--o{ devices : "has"
     bins ||--o{ alerts : "has"
-    devices ||--o{ alerts : "DEVICE_OFFLINE"
+    devices |o--o{ alerts : "DEVICE_OFFLINE"
     bins ||..o{ readings : "bin_id, no FK"
     devices ||..o{ readings : "device_id, no FK"
 
@@ -267,6 +272,13 @@ erDiagram
         smallint clear_streak "three clear evaluations resolve"
     }
 ```
+
+**Reading the diagram.** A **solid line** is an enforced foreign key, and a
+**dotted line** is a link the database doesn't enforce. That is this
+document's convention: Mermaid's own reading of the two, identifying and
+non-identifying, doesn't fit this schema. At the ends, `||` is exactly one,
+`|o` zero or one, and `o{` zero or more. So a bin has any number of devices
+and alerts, and an alert points at a device only for `DEVICE_OFFLINE`.
 
 - **Alerts de-duplicate through partial unique indexes.** They cover only
   unresolved alerts: one per `(bin, type, cable, depth)` for sensor alerts, and
