@@ -129,7 +129,7 @@ flowchart LR
 - **Operations:** Docker, GitHub Actions, Terraform, AWS (`ca-central-1`)
 - **Monitoring:** Prometheus and Grafana, CloudWatch
 
-The full requirements are in [docs/spec.md](docs/spec.md).
+A walkthrough of one batch from ingest to alert, the data model and the failure behaviour are in [docs/architecture.md](docs/architecture.md). The full requirements are in [docs/spec.md](docs/spec.md).
 
 ## Results
 
@@ -243,7 +243,7 @@ load-tests/k6/      the k6 ingest load test, and the summaries of recorded runs
 ops/                Prometheus config and the provisioned Grafana dashboard
 .github/workflows/  ci.yml, plan.yml, deploy.yml
 .githooks/          the gitleaks pre-commit hook
-docs/               spec, setup, results, enhancements, decision records
+docs/               architecture, spec, setup, results, enhancements, decision records
 docker-compose.yml  local Postgres, Prometheus, Grafana, and the API image
 ```
 
